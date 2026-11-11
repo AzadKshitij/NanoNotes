@@ -25,6 +25,7 @@ internal sealed partial class notesPage : DynamicListPage
         Title = "Notes";
         Icon = NotesIcons.Note;
         PlaceholderText = "Search notes, or type a new one and press Enter";
+        ShowDetails = true;
 
         _store.Changed += OnNotesChanged;
     }
@@ -45,13 +46,13 @@ internal sealed partial class notesPage : DynamicListPage
         {
             return notes.Count == 0
                 ? [EmptyItem()]
-                : notes.Select(NoteItem).ToArray();
+                : notes.Select(n => ItemFactory.ForNote(n)).ToArray();
         }
 
         var items = new List<IListItem>();
         items.AddRange(notes
             .Where(n => n.Text.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .Select(NoteItem));
+            .Select(n => ItemFactory.ForNote(n)));
 
         if (!notes.Any(n => string.Equals(n.Text.Trim(), query, StringComparison.OrdinalIgnoreCase)))
         {
@@ -84,35 +85,6 @@ internal sealed partial class notesPage : DynamicListPage
         Icon = NotesIcons.Add,
     };
 
-    private static ListItem NoteItem(Note note) => new(new NoteDetailPage(note.Id))
-    {
-        Title = Headline(note.Text),
-        Subtitle = Describe(note),
-        Icon = NotesIcons.Note,
-        MoreCommands =
-        [
-            new CommandContextItem(new CopyTextCommand(note.Text)
-            {
-                Result = CommandResult.ShowToast(new ToastArgs { Message = "Note copied" }),
-            })
-            {
-                Title = "Copy note",
-                Icon = NotesIcons.Copy,
-            },
-            new CommandContextItem(new AnonymousCommand(() => _ = NoteStore.Instance.Delete(note.Id))
-            {
-                Name = "Delete note",
-                Result = CommandResult.KeepOpen(),
-            })
-            {
-                Title = "Delete note",
-                Subtitle = "Remove this note",
-                Icon = NotesIcons.Delete,
-                IsCritical = true,
-            },
-        ],
-    };
-
     private static ListItem NewNoteItem(string text)
     {
         AnonymousCommand? save = null;
@@ -139,13 +111,5 @@ internal sealed partial class notesPage : DynamicListPage
             Subtitle = "Press Enter to save this as a new note",
             Icon = NotesIcons.Add,
         };
-    }
-
-    private static string Describe(Note note)
-    {
-        var lineCount = note.Text.Trim().Split('\n').Length;
-        var when = Humanize.RelativeTime(note.Updated);
-
-        return lineCount > 1 ? $"{when}  \u00b7  {lineCount} lines" : when;
     }
 }

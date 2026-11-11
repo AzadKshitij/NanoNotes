@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
@@ -11,7 +10,7 @@ using Microsoft.CommandPalette.Extensions.Toolkit;
 namespace notes;
 
 /// <summary>
-/// The clipboard history: type to filter, pick an entry to see it in full.
+/// The clipboard history: type to filter, pick an entry to copy it.
 /// </summary>
 internal sealed partial class ClipboardPage : DynamicListPage
 {
@@ -26,6 +25,7 @@ internal sealed partial class ClipboardPage : DynamicListPage
         Title = "Clipboard history";
         Icon = NotesIcons.History;
         PlaceholderText = "Search clipboard history";
+        ShowDetails = true;
 
         _store.Changed += OnStoreChanged;
         _settings.Settings.SettingsChanged += OnSettingsChanged;
@@ -49,10 +49,10 @@ internal sealed partial class ClipboardPage : DynamicListPage
 
         if (query.Length == 0)
         {
-            return entries.Count == 0 ? [EmptyItem()] : entries.Select(Item).ToArray();
+            return entries.Count == 0 ? [EmptyItem()] : entries.Select(e => ItemFactory.ForClipboard(e)).ToArray();
         }
 
-        return entries.Where(e => Matches(e, query)).Select(Item).ToArray();
+        return entries.Where(e => Matches(e, query)).Select(e => ItemFactory.ForClipboard(e)).ToArray();
     }
 
     internal static bool Matches(ClipboardEntry entry, string query)
@@ -90,81 +90,4 @@ internal sealed partial class ClipboardPage : DynamicListPage
         Subtitle = "Text and images you copy will appear here",
         Icon = NotesIcons.Clipboard,
     };
-
-    private ListItem Item(ClipboardEntry entry)
-    {
-        if (entry.Kind == ClipboardEntryKind.Image)
-        {
-            return ImageItem(entry);
-        }
-
-        var text = entry.Text ?? string.Empty;
-        return new ListItem(new ClipboardDetailPage(entry.Id))
-        {
-            Title = Headline(text),
-            Subtitle = Humanize.RelativeTime(entry.Created),
-            Icon = NotesIcons.Clipboard,
-            MoreCommands =
-            [
-                new CommandContextItem(new CopyTextCommand(text)
-                {
-                    Result = CommandResult.ShowToast(new ToastArgs { Message = "Copied to clipboard" }),
-                })
-                {
-                    Title = "Copy text",
-                    Icon = NotesIcons.Copy,
-                },
-                DeleteCommand(entry),
-            ],
-        };
-    }
-
-    private ListItem ImageItem(ClipboardEntry entry)
-    {
-        var icon = string.IsNullOrEmpty(entry.ImagePath)
-            ? NotesIcons.Image
-            : new IconInfo(entry.ImagePath);
-
-        return new ListItem(new ClipboardDetailPage(entry.Id))
-        {
-            Title = "Image",
-            Subtitle = $"{entry.Width}x{entry.Height}  \u00b7  {Humanize.RelativeTime(entry.Created)}",
-            Icon = icon,
-            MoreCommands =
-            [
-                new CommandContextItem(new AnonymousCommand(() => CopyImage(entry))
-                {
-                    Name = "Copy image",
-                    Result = CommandResult.ShowToast(new ToastArgs { Message = "Image copied to clipboard" }),
-                })
-                {
-                    Title = "Copy image",
-                    Icon = NotesIcons.Copy,
-                },
-                DeleteCommand(entry),
-            ],
-        };
-    }
-
-    private CommandContextItem DeleteCommand(ClipboardEntry entry) => new(new AnonymousCommand(() => _ = _store.Delete(entry.Id))
-    {
-        Name = "Delete item",
-        Result = CommandResult.KeepOpen(),
-    })
-    {
-        Title = "Delete item",
-        Subtitle = "Remove this entry from the history",
-        Icon = NotesIcons.Delete,
-        IsCritical = true,
-    };
-
-    private static void CopyImage(ClipboardEntry entry)
-    {
-        if (string.IsNullOrEmpty(entry.ImagePath))
-        {
-            return;
-        }
-
-        ClipboardWriter.SetImage(entry.ImagePath);
-    }
 }
