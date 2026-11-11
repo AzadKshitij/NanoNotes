@@ -25,6 +25,7 @@ internal sealed partial class SearchPage : DynamicListPage
         Title = "Search";
         Icon = NotesIcons.Search;
         PlaceholderText = "Search notes and clipboard history";
+        ShowDetails = true;
 
         _notes.Changed += OnStoreChanged;
         _clipboard.Changed += OnStoreChanged;
@@ -47,12 +48,12 @@ internal sealed partial class SearchPage : DynamicListPage
 
         foreach (var note in _notes.All().Where(n => n.Text.Contains(query, StringComparison.OrdinalIgnoreCase)))
         {
-            matches.Add((note.Updated, NoteItem(note)));
+            matches.Add((note.Updated, ItemFactory.ForNote(note, "Note")));
         }
 
         foreach (var entry in _clipboard.All().Where(e => ClipboardPage.Matches(e, query)))
         {
-            matches.Add((entry.Created, ClipboardItem(entry)));
+            matches.Add((entry.Created, ItemFactory.ForClipboard(entry, "Clipboard")));
         }
 
         if (matches.Count == 0)
@@ -79,43 +80,4 @@ internal sealed partial class SearchPage : DynamicListPage
         Subtitle = $"Nothing in notes or clipboard history matches \"{query}\"",
         Icon = NotesIcons.Search,
     };
-
-    private static ListItem NoteItem(Note note)
-    {
-        var when = Humanize.RelativeTime(note.Updated);
-        var lineCount = note.Text.Trim().Split('\n').Length;
-
-        return new ListItem(new NoteDetailPage(note.Id))
-        {
-            Title = notesPage.Headline(note.Text),
-            Subtitle = lineCount > 1
-                ? $"Note  \u00b7  {when}  \u00b7  {lineCount} lines"
-                : $"Note  \u00b7  {when}",
-            Icon = NotesIcons.Note,
-        };
-    }
-
-    private static ListItem ClipboardItem(ClipboardEntry entry)
-    {
-        var when = Humanize.RelativeTime(entry.Created);
-
-        if (entry.Kind == ClipboardEntryKind.Image)
-        {
-            return new ListItem(new ClipboardDetailPage(entry.Id))
-            {
-                Title = "Image",
-                Subtitle = $"Clipboard  \u00b7  {entry.Width}x{entry.Height}  \u00b7  {when}",
-                Icon = string.IsNullOrEmpty(entry.ImagePath)
-                    ? NotesIcons.Image
-                    : new IconInfo(entry.ImagePath),
-            };
-        }
-
-        return new ListItem(new ClipboardDetailPage(entry.Id))
-        {
-            Title = ClipboardPage.Headline(entry.Text ?? string.Empty),
-            Subtitle = $"Clipboard  \u00b7  {when}",
-            Icon = NotesIcons.Clipboard,
-        };
-    }
 }
