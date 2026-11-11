@@ -7,13 +7,19 @@ $ErrorActionPreference = "Stop"
 # siblings of the repo folder.
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoParent = Split-Path -Parent $root
-$projectDir = Join-Path $root "notes"
+$projectDir = Join-Path $root "NanoNotes"
 $projectFile = Join-Path $projectDir "notes.csproj"
 $layout = Join-Path $repoParent "layout"
+
+# The loose-layout manifest is kept beside the repo for the local Store flow and
+# mirrored at packaging\AppxManifest.xml inside the repo so a clone can register too.
 $manifestSource = Join-Path $repoParent "packaging\AppxManifest.xml"
+if (-not (Test-Path $manifestSource)) {
+    $manifestSource = Join-Path $root "packaging\AppxManifest.xml"
+}
 
 if (-not (Test-Path $manifestSource)) {
-    throw "Manifest not found at $manifestSource. packaging\AppxManifest.xml must sit next to the repo folder."
+    throw "Manifest not found. Expected packaging\AppxManifest.xml beside the repo or inside it."
 }
 
 $dotnet = Join-Path $env:USERPROFILE ".dotnet\dotnet.exe"
