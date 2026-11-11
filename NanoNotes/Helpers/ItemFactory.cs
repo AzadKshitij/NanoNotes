@@ -73,7 +73,7 @@ internal static class ItemFactory
             var copy = new AnonymousCommand(() => CopyImage(entry))
             {
                 Name = "Copy image",
-                Icon = NotesIcons.Image,
+                Icon = NotesIcons.Copy,
                 Result = CommandResult.ShowToast(new ToastArgs { Message = "Image copied to clipboard" }),
             };
 
