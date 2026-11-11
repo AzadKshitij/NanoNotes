@@ -40,11 +40,6 @@ internal static class ItemFactory
             Details = DetailsPreview.ForNote(note),
             MoreCommands =
             [
-                new CommandContextItem(new NoteDetailPage(note.Id))
-                {
-                    Title = "Open full view",
-                    Icon = NotesIcons.Note,
-                },
                 new CommandContextItem(new AnonymousCommand(() => _ = NoteStore.Instance.Delete(note.Id))
                 {
                     Name = "Delete note",
@@ -86,15 +81,7 @@ internal static class ItemFactory
                 Subtitle = $"{entry.Width}x{entry.Height}  \u00b7  {subtitle}",
                 Icon = icon,
                 Details = DetailsPreview.ForClipboard(entry),
-                MoreCommands =
-                [
-                    new CommandContextItem(new ClipboardDetailPage(entry.Id))
-                    {
-                        Title = "Open full view",
-                        Icon = NotesIcons.Clipboard,
-                    },
-                    DeleteCommand(entry),
-                ],
+                MoreCommands = [DeleteCommand(entry)],
             };
         }
 
@@ -110,15 +97,7 @@ internal static class ItemFactory
             Subtitle = subtitle,
             Icon = NotesIcons.Clipboard,
             Details = DetailsPreview.ForClipboard(entry),
-            MoreCommands =
-            [
-                new CommandContextItem(new ClipboardDetailPage(entry.Id))
-                {
-                    Title = "Open full view",
-                    Icon = NotesIcons.Clipboard,
-                },
-                DeleteCommand(entry),
-            ],
+            MoreCommands = [DeleteCommand(entry)],
         };
     }
 
