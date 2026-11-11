@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "notes (Package)": {
+      "commandName": "MsixPackage",
+      "doNotLaunchApp": true
+    },
+    "notes (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

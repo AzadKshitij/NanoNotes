@@ -1,0 +1,24 @@
+// Copyright (c) Microsoft Corporation
+// The Microsoft Corporation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
+
+using Microsoft.CommandPalette.Extensions.Toolkit;
+
+namespace notes;
+
+/// <summary>
+/// Custom brand icons shipped as package assets (Assets\icons\*.png), drawn
+/// in the app tile's sticker style and resolved relative to the extension.
+/// </summary>
+internal static class NotesIcons
+{
+    public static readonly IconInfo Note = IconHelpers.FromRelativePath(@"Assets\icons\note.png");
+    public static readonly IconInfo Add = IconHelpers.FromRelativePath(@"Assets\icons\add.png");
+    public static readonly IconInfo Copy = IconHelpers.FromRelativePath(@"Assets\icons\copy.png");
+    public static readonly IconInfo Delete = IconHelpers.FromRelativePath(@"Assets\icons\delete.png");
+    public static readonly IconInfo File = IconHelpers.FromRelativePath(@"Assets\icons\file.png");
+    public static readonly IconInfo Clipboard = IconHelpers.FromRelativePath(@"Assets\icons\clipboard.png");
+    public static readonly IconInfo History = IconHelpers.FromRelativePath(@"Assets\icons\history.png");
+    public static readonly IconInfo Image = IconHelpers.FromRelativePath(@"Assets\icons\image.png");
+    public static readonly IconInfo Search = IconHelpers.FromRelativePath(@"Assets\icons\search.png");
+}

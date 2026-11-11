@@ -1,0 +1,15 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+publish/
+*.binlog
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS noise
+Thumbs.db
+.DS_Store
