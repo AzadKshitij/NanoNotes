@@ -18,6 +18,8 @@ internal sealed partial class ClipboardPage : DynamicListPage
 
     private readonly ClipboardStore _store = ClipboardStore.Instance;
     private readonly SettingsManager _settings = SettingsManager.Instance;
+    private int _lastCount;
+    private bool _suppressRefresh;
 
     public ClipboardPage()
     {
@@ -27,11 +29,27 @@ internal sealed partial class ClipboardPage : DynamicListPage
         PlaceholderText = "Search clipboard history";
         ShowDetails = true;
 
+        _lastCount = _store.All().Count;
         _store.Changed += OnStoreChanged;
         _settings.Settings.SettingsChanged += OnSettingsChanged;
     }
 
-    private void OnStoreChanged(object? sender, EventArgs e) => RaiseItemsChanged();
+    private void OnStoreChanged(object? sender, EventArgs e)
+    {
+        if (_suppressRefresh)
+        {
+            _suppressRefresh = false;
+            _lastCount = _store.All().Count;
+            return;
+        }
+
+        var count = _store.All().Count;
+
+        // Keep the selected row in place when a row was deleted; a full rebuild
+        // would otherwise jump the list back to the first item.
+        RaiseItemsChanged(count < _lastCount ? -2 : -1);
+        _lastCount = count;
+    }
 
     private void OnSettingsChanged(object? sender, Settings e)
     {
@@ -49,10 +67,10 @@ internal sealed partial class ClipboardPage : DynamicListPage
 
         if (query.Length == 0)
         {
-            return entries.Count == 0 ? [EmptyItem()] : entries.Select(e => ItemFactory.ForClipboard(e)).ToArray();
+            return entries.Count == 0 ? [EmptyItem()] : entries.Select(e => ItemFactory.ForClipboard(e, onDelete: () => _suppressRefresh = true)).ToArray();
         }
 
-        return entries.Where(e => Matches(e, query)).Select(e => ItemFactory.ForClipboard(e)).ToArray();
+        return entries.Where(e => Matches(e, query)).Select(e => ItemFactory.ForClipboard(e, onDelete: () => _suppressRefresh = true)).ToArray();
     }
 
     internal static bool Matches(ClipboardEntry entry, string query)

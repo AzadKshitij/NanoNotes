@@ -18,6 +18,8 @@ internal sealed partial class notesPage : DynamicListPage
     private const int MaxTitleLength = 90;
 
     private readonly NoteStore _store = NoteStore.Instance;
+    private int _lastCount;
+    private bool _suppressRefresh;
 
     public notesPage()
     {
@@ -27,10 +29,26 @@ internal sealed partial class notesPage : DynamicListPage
         PlaceholderText = "Search notes, or type a new one and press Enter";
         ShowDetails = true;
 
+        _lastCount = _store.All().Count;
         _store.Changed += OnNotesChanged;
     }
 
-    private void OnNotesChanged(object? sender, EventArgs e) => RaiseItemsChanged();
+    private void OnNotesChanged(object? sender, EventArgs e)
+    {
+        if (_suppressRefresh)
+        {
+            _suppressRefresh = false;
+            _lastCount = _store.All().Count;
+            return;
+        }
+
+        var count = _store.All().Count;
+
+        // Keep the selected row in place when a row was deleted; a full rebuild
+        // would otherwise jump the list back to the first item.
+        RaiseItemsChanged(count < _lastCount ? -2 : -1);
+        _lastCount = count;
+    }
 
     public override void UpdateSearchText(string oldSearch, string newSearch)
     {
@@ -46,13 +64,13 @@ internal sealed partial class notesPage : DynamicListPage
         {
             return notes.Count == 0
                 ? [EmptyItem()]
-                : notes.Select(n => ItemFactory.ForNote(n)).ToArray();
+                : notes.Select(n => ItemFactory.ForNote(n, onDelete: () => _suppressRefresh = true)).ToArray();
         }
 
         var items = new List<IListItem>();
         items.AddRange(notes
             .Where(n => n.Text.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .Select(n => ItemFactory.ForNote(n)));
+            .Select(n => ItemFactory.ForNote(n, onDelete: () => _suppressRefresh = true)));
 
         if (!notes.Any(n => string.Equals(n.Text.Trim(), query, StringComparison.OrdinalIgnoreCase)))
         {
