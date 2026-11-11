@@ -55,7 +55,7 @@ internal sealed partial class ClipboardPage : DynamicListPage
         return entries.Where(e => Matches(e, query)).Select(Item).ToArray();
     }
 
-    private static bool Matches(ClipboardEntry entry, string query)
+    internal static bool Matches(ClipboardEntry entry, string query)
     {
         if (entry.Kind == ClipboardEntryKind.Text)
         {
@@ -63,10 +63,11 @@ internal sealed partial class ClipboardPage : DynamicListPage
         }
 
         // Images have no text to search, so match the word "image" or the file name.
+        // Use only the name: the storage path itself contains "Notes" and would match everything.
+        var fileName = System.IO.Path.GetFileName(entry.ImagePath ?? string.Empty);
         return "image".Contains(query, StringComparison.OrdinalIgnoreCase)
-            || (entry.ImagePath ?? string.Empty).Contains(query, StringComparison.OrdinalIgnoreCase);
+            || fileName.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
-
     internal static string Headline(string text)
     {
         var trimmed = text.Trim();
@@ -101,7 +102,7 @@ internal sealed partial class ClipboardPage : DynamicListPage
         return new ListItem(new ClipboardDetailPage(entry.Id))
         {
             Title = Headline(text),
-            Subtitle = RelativeTime(entry.Created),
+            Subtitle = Humanize.RelativeTime(entry.Created),
             Icon = NotesIcons.Clipboard,
             MoreCommands =
             [
@@ -127,7 +128,7 @@ internal sealed partial class ClipboardPage : DynamicListPage
         return new ListItem(new ClipboardDetailPage(entry.Id))
         {
             Title = "Image",
-            Subtitle = $"{entry.Width}x{entry.Height}  \u00b7  {RelativeTime(entry.Created)}",
+            Subtitle = $"{entry.Width}x{entry.Height}  \u00b7  {Humanize.RelativeTime(entry.Created)}",
             Icon = icon,
             MoreCommands =
             [
@@ -165,32 +166,5 @@ internal sealed partial class ClipboardPage : DynamicListPage
         }
 
         ClipboardWriter.SetImage(entry.ImagePath);
-    }
-
-    private static string RelativeTime(DateTimeOffset timestamp)
-    {
-        var delta = DateTimeOffset.Now - timestamp;
-
-        if (delta.TotalMinutes < 1)
-        {
-            return "just now";
-        }
-
-        if (delta.TotalMinutes < 60)
-        {
-            return $"{(int)delta.TotalMinutes} min ago";
-        }
-
-        if (delta.TotalHours < 24)
-        {
-            return $"{(int)delta.TotalHours} h ago";
-        }
-
-        if (delta.TotalDays < 7)
-        {
-            return $"{(int)delta.TotalDays} d ago";
-        }
-
-        return timestamp.ToLocalTime().ToString("d MMM yyyy", System.Globalization.CultureInfo.CurrentCulture);
     }
 }

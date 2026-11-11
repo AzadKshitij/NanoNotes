@@ -144,35 +144,8 @@ internal sealed partial class notesPage : DynamicListPage
     private static string Describe(Note note)
     {
         var lineCount = note.Text.Trim().Split('\n').Length;
-        var when = RelativeTime(note.Updated);
+        var when = Humanize.RelativeTime(note.Updated);
 
         return lineCount > 1 ? $"{when}  \u00b7  {lineCount} lines" : when;
-    }
-
-    private static string RelativeTime(DateTimeOffset timestamp)
-    {
-        var delta = DateTimeOffset.Now - timestamp;
-
-        if (delta.TotalMinutes < 1)
-        {
-            return "just now";
-        }
-
-        if (delta.TotalMinutes < 60)
-        {
-            return $"{(int)delta.TotalMinutes} min ago";
-        }
-
-        if (delta.TotalHours < 24)
-        {
-            return $"{(int)delta.TotalHours} h ago";
-        }
-
-        if (delta.TotalDays < 7)
-        {
-            return $"{(int)delta.TotalDays} d ago";
-        }
-
-        return timestamp.ToLocalTime().ToString("d MMM yyyy", System.Globalization.CultureInfo.CurrentCulture);
     }
 }

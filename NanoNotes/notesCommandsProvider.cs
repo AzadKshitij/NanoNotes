@@ -19,6 +19,13 @@ public partial class notesCommandsProvider : CommandProvider
         DisplayName = "NanoNotes";
         Icon = NotesIcons.Note;
         _commands = [
+            new CommandItem(new SearchPage())
+            {
+                Title = "Search",
+                Subtitle = "Find a note or a clipboard entry in one list",
+                Icon = NotesIcons.Search,
+                MoreCommands = [new CommandContextItem(_settingsManager.Settings.SettingsPage)],
+            },
             new CommandItem(new notesPage())
             {
                 Title = DisplayName,
