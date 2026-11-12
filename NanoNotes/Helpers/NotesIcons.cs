@@ -24,6 +24,8 @@ internal static class NotesIcons
 
     // Menu entries sit on a much smaller icon box than list rows, where the
     // sticker PNGs shrink to an unreadable size. Font glyphs stay crisp.
+    public static readonly IconInfo CopyGlyph = new("\uE8C8");
+    public static readonly IconInfo PasteGlyph = new("\uE77B");
     public static readonly IconInfo AddGlyph = new("\uE710");
     public static readonly IconInfo DeleteGlyph = new("\uE74D");
 }

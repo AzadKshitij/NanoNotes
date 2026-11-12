@@ -18,7 +18,6 @@ internal sealed partial class notesPage : DynamicListPage
     private const int MaxTitleLength = 90;
 
     private readonly NoteStore _store = NoteStore.Instance;
-    private int _lastCount;
     private bool _suppressRefresh;
 
     public notesPage()
@@ -29,7 +28,6 @@ internal sealed partial class notesPage : DynamicListPage
         PlaceholderText = "Search notes, or type a new one and press Enter";
         ShowDetails = true;
 
-        _lastCount = _store.All().Count;
         _store.Changed += OnNotesChanged;
     }
 
@@ -37,17 +35,13 @@ internal sealed partial class notesPage : DynamicListPage
     {
         if (_suppressRefresh)
         {
+            // The delete action leaves a tombstone in place of the row. Rebuilding
+            // the list here would send the selection back to the first item.
             _suppressRefresh = false;
-            _lastCount = _store.All().Count;
             return;
         }
 
-        var count = _store.All().Count;
-
-        // Keep the selected row in place when a row was deleted; a full rebuild
-        // would otherwise jump the list back to the first item.
-        RaiseItemsChanged(count < _lastCount ? -2 : -1);
-        _lastCount = count;
+        RaiseItemsChanged();
     }
 
     public override void UpdateSearchText(string oldSearch, string newSearch)

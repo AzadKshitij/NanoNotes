@@ -19,7 +19,6 @@ internal sealed partial class SearchPage : DynamicListPage
 {
     private readonly NoteStore _notes = NoteStore.Instance;
     private readonly ClipboardStore _clipboard = ClipboardStore.Instance;
-    private int _lastCount;
     private bool _suppressRefresh;
 
     public SearchPage()
@@ -30,7 +29,6 @@ internal sealed partial class SearchPage : DynamicListPage
         PlaceholderText = "Search notes and clipboard history";
         ShowDetails = true;
 
-        _lastCount = _notes.All().Count + _clipboard.All().Count;
         _notes.Changed += OnStoreChanged;
         _clipboard.Changed += OnStoreChanged;
     }
@@ -39,17 +37,13 @@ internal sealed partial class SearchPage : DynamicListPage
     {
         if (_suppressRefresh)
         {
+            // The delete action leaves a tombstone in place of the row. Rebuilding
+            // the list here would send the selection back to the first item.
             _suppressRefresh = false;
-            _lastCount = _notes.All().Count + _clipboard.All().Count;
             return;
         }
 
-        var count = _notes.All().Count + _clipboard.All().Count;
-
-        // Keep the selected row in place when a row was deleted; a full rebuild
-        // would otherwise jump the list back to the first item.
-        RaiseItemsChanged(count < _lastCount ? -2 : -1);
-        _lastCount = count;
+        RaiseItemsChanged();
     }
 
     public override void UpdateSearchText(string oldSearch, string newSearch) => RaiseItemsChanged();

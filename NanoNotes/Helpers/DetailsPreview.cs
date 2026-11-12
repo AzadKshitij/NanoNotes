@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -26,7 +27,34 @@ internal static class DetailsPreview
     /// </summary>
     private const int WrapColumn = 52;
 
+    /// <summary>
+    /// The list asks for its rows on every keystroke, and every row carries a
+    /// details pane. Building that pane means escaping the whole note again and
+    /// again, so the finished panes are kept here. The key holds the text and
+    /// the timestamps, because the pane shows both.
+    /// </summary>
+    private const int MaxCachedDetails = 512;
+
+    private static readonly ConcurrentDictionary<string, Details> _cache = new(StringComparer.Ordinal);
+
     public static Details ForNote(Note note)
+    {
+        var text = note.Text ?? string.Empty;
+        return Cached($"note|{note.Created.Ticks}|{note.Updated.Ticks}|{text}", () => BuildNoteDetails(note));
+    }
+
+    public static Details ForClipboard(ClipboardEntry entry)
+    {
+        if (entry.Kind == ClipboardEntryKind.Image)
+        {
+            return BuildImageDetails(entry);
+        }
+
+        var text = entry.Text ?? string.Empty;
+        return Cached($"clip|{entry.Created.Ticks}|{text}", () => BuildClipboardDetails(entry, text));
+    }
+
+    private static Details BuildNoteDetails(Note note)
     {
         var text = note.Text ?? string.Empty;
         var (lines, words, characters) = Count(text);
@@ -52,30 +80,8 @@ internal static class DetailsPreview
         };
     }
 
-    public static Details ForClipboard(ClipboardEntry entry)
+    private static Details BuildClipboardDetails(ClipboardEntry entry, string text)
     {
-        if (entry.Kind == ClipboardEntryKind.Image)
-        {
-            var details = new Details
-            {
-                Title = "Image",
-                Body = $"_{entry.Width}\u00a0\u00d7\u00a0{entry.Height} pixels_",
-                Size = ContentSize.Large,
-                Metadata =
-                [
-                    Text("Copied", entry.Created.ToLocalTime().ToString("ddd d MMM yyyy, HH:mm", CultureInfo.CurrentCulture)),
-                ],
-            };
-
-            if (!string.IsNullOrEmpty(entry.ImagePath))
-            {
-                details.HeroImage = new IconInfo(entry.ImagePath);
-            }
-
-            return details;
-        }
-
-        var text = entry.Text ?? string.Empty;
         var (lines, words, characters) = Count(text);
 
         var metadata = new List<IDetailsElement>
@@ -92,6 +98,45 @@ internal static class DetailsPreview
             Size = ContentSize.Large,
             Metadata = metadata.ToArray(),
         };
+    }
+
+    private static Details BuildImageDetails(ClipboardEntry entry)
+    {
+        var details = new Details
+        {
+            Title = "Image",
+            Body = $"_{entry.Width}\u00a0\u00d7\u00a0{entry.Height} pixels_",
+            Size = ContentSize.Large,
+            Metadata =
+            [
+                Text("Copied", entry.Created.ToLocalTime().ToString("ddd d MMM yyyy, HH:mm", CultureInfo.CurrentCulture)),
+            ],
+        };
+
+        if (!string.IsNullOrEmpty(entry.ImagePath))
+        {
+            details.HeroImage = new IconInfo(entry.ImagePath);
+        }
+
+        return details;
+    }
+
+    private static Details Cached(string key, Func<Details> build)
+    {
+        if (_cache.TryGetValue(key, out var existing))
+        {
+            return existing;
+        }
+
+        var details = build();
+
+        if (_cache.Count >= MaxCachedDetails)
+        {
+            _cache.Clear();
+        }
+
+        _cache[key] = details;
+        return details;
     }
 
     /// <summary>
@@ -149,23 +194,35 @@ internal static class DetailsPreview
         }
 
         var rest = line[index..];
+        var chunk = new StringBuilder();
         var first = true;
+        var start = 0;
 
-        while (rest.Length > WrapColumn)
+        // Walk the line with an index instead of cutting new strings out of it:
+        // a long line used to be copied once per wrapped row.
+        while (rest.Length - start > WrapColumn)
         {
-            var cut = rest.LastIndexOf(' ', WrapColumn - 1);
-            if (cut <= 0)
+            var cut = rest.LastIndexOf(' ', start + WrapColumn - 1, WrapColumn - 1);
+            if (cut <= start)
             {
-                cut = WrapColumn - 1;
+                cut = start + WrapColumn - 1;
             }
 
-            var chunk = rest[..cut].TrimEnd();
-            lines.Add((first ? prefix.ToString() : string.Empty) + Escape(chunk));
+            chunk.Clear();
+            chunk.Append(rest, start, cut - start);
+            lines.Add((first ? prefix.ToString() : string.Empty) + Escape(chunk.ToString().TrimEnd()));
             first = false;
-            rest = rest[cut..].TrimStart(' ');
+
+            start = cut;
+            while (start < rest.Length && rest[start] == ' ')
+            {
+                start++;
+            }
         }
 
-        lines.Add((first ? prefix.ToString() : string.Empty) + Escape(rest));
+        chunk.Clear();
+        chunk.Append(rest, start, rest.Length - start);
+        lines.Add((first ? prefix.ToString() : string.Empty) + Escape(chunk.ToString()));
     }
 
     private static string Escape(string line)

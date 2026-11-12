@@ -28,6 +28,18 @@ internal sealed partial class ClipboardMonitor : IDisposable
     private const long MaxImageBytes = 25L * 1024 * 1024;
 
     /// <summary>
+    /// The decoded picture may not need more than this. A 100 megapixel image is
+    /// 400 MB once it is in memory, before it is scaled down.
+    /// </summary>
+    private const long MaxDecodedBytes = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// Text longer than this is skipped. A copied file or a whole document would
+    /// otherwise be stored, parsed and shown over and over.
+    /// </summary>
+    private const int MaxTextChars = 100_000;
+
+    /// <summary>
     /// Captured images are downscaled to this on their longest side. A 4K
     /// screenshot stays perfectly readable and drops from ~15 MB to ~1 MB.
     /// </summary>
@@ -37,7 +49,7 @@ internal sealed partial class ClipboardMonitor : IDisposable
 
     private readonly ClipboardStore _store;
     private readonly SettingsManager _settings;
-    private readonly ClipboardThreadQueue _queue = new();
+    private readonly ClipboardThreadQueue _queue = ClipboardThreadQueue.Shared;
     private readonly ClipboardListener _listener;
     private readonly Timer _pruneTimer;
     private bool _disposed;
@@ -81,8 +93,23 @@ internal sealed partial class ClipboardMonitor : IDisposable
                 var text = content.GetTextAsync().AsTask().GetAwaiter().GetResult();
                 if (!string.IsNullOrWhiteSpace(text))
                 {
+                    if (text.Length > MaxTextChars)
+                    {
+                        DebugLog.Write($"skipped oversized text: {text.Length} characters");
+                        return;
+                    }
+
                     var preview = text.Replace("\r", string.Empty).Replace("\n", "\\n");
                     DebugLog.Write("captured text: " + (preview.Length <= 80 ? preview : preview[..80]));
+
+                    if (_store.IsOwnCopy(text))
+                    {
+                        // The app put this on the clipboard itself, for example
+                        // to paste a note into another window.
+                        DebugLog.Write("skipped own copy");
+                        return;
+                    }
+
                     _store.AddText(text);
                     return;
                 }
@@ -98,6 +125,13 @@ internal sealed partial class ClipboardMonitor : IDisposable
                     if (saved is not null)
                     {
                         DebugLog.Write($"captured image: {saved.Value.Width}x{saved.Value.Height}");
+
+                        if (_store.IsOwnCopy(saved.Value.Path))
+                        {
+                            DebugLog.Write("skipped own copy");
+                            return;
+                        }
+
                         _store.AddImage(saved.Value.Path, saved.Value.Width, saved.Value.Height);
                     }
                 }
@@ -120,6 +154,14 @@ internal sealed partial class ClipboardMonitor : IDisposable
 
             var decoder = await BitmapDecoder.CreateAsync(stream).AsTask().ConfigureAwait(false);
             using var bitmap = await decoder.GetSoftwareBitmapAsync().AsTask().ConfigureAwait(false);
+
+            // A very large picture is dropped here: scaling it down would cost
+            // more memory than it is worth.
+            if ((long)bitmap.PixelWidth * bitmap.PixelHeight * 4 > MaxDecodedBytes)
+            {
+                DebugLog.Write($"skipped oversized image: {bitmap.PixelWidth}x{bitmap.PixelHeight}");
+                return null;
+            }
 
             var scale = Math.Min(1.0, MaxImageDimension / (double)Math.Max(bitmap.PixelWidth, bitmap.PixelHeight));
             var width = Math.Max(1, (int)Math.Round(bitmap.PixelWidth * scale));
@@ -146,7 +188,7 @@ internal sealed partial class ClipboardMonitor : IDisposable
                 File.WriteAllBytes(path, bytes);
             }
 
-            return (path, bitmap.PixelWidth, bitmap.PixelHeight);
+            return (path, width, height);
         }
         catch (Exception ex)
         {
@@ -160,6 +202,8 @@ internal sealed partial class ClipboardMonitor : IDisposable
         _disposed = true;
         _listener.Dispose();
         _pruneTimer.Dispose();
-        _queue.Dispose();
+
+        // The clipboard thread is shared with the writer, so it stays alive for
+        // the life of the process.
     }
 }
