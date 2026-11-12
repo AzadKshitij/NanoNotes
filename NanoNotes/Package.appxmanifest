@@ -12,7 +12,7 @@
   <Identity
     Name="AzadKshitij.NanoNotes"
     Publisher="CN=FAD49972-195D-443F-A471-CECCA55AF335"
-    Version="1.0.0.0" />
+    Version="1.1.0.0" />
 
   <Properties>
     <DisplayName>NanoNotes</DisplayName>

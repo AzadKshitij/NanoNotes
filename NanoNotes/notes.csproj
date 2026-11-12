@@ -14,7 +14,7 @@
     <!-- Microsoft Store identity (Partner Center > Product Management > Product Identity). -->
     <AppxPackageIdentityName>AzadKshitij.NanoNotes</AppxPackageIdentityName>
     <AppxPackagePublisher>CN=FAD49972-195D-443F-A471-CECCA55AF335</AppxPackagePublisher>
-    <AppxPackageVersion>1.0.0.0</AppxPackageVersion>
+    <AppxPackageVersion>1.1.0.0</AppxPackageVersion>
 
     <PublishProfile>win-$(Platform).pubxml</PublishProfile>
     <EnableMsixTooling>true</EnableMsixTooling>
