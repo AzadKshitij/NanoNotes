@@ -98,11 +98,34 @@ function Invoke-Elevated {
     if ($DryRun) { $arguments += '-DryRun' }
 
     Write-Step 'Administrator rights are needed to trust the signing certificate. Approve the prompt.'
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments
-    exit 0
+
+    try {
+        $elevated = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments -PassThru -Wait
+    }
+    catch {
+        Write-Host 'Elevation was cancelled, so nothing was changed.' -ForegroundColor Yellow
+        exit 1
+    }
+
+    # Report the result in this window too: the elevated window closes on its own.
+    $now = Get-AppxPackage -Name $packageName -ErrorAction SilentlyContinue
+    if ($Uninstall) {
+        if ($now) { Write-Host 'NanoNotes is still installed; check the elevated window.' -ForegroundColor Red; exit 1 }
+        Write-Host 'NanoNotes is uninstalled.' -ForegroundColor Green
+        exit 0
+    }
+
+    if ($now) {
+        Write-Host "NanoNotes $($now.Version) is installed." -ForegroundColor Green
+        Write-Host 'Press Alt+Space in Command Palette and type "notes".' -ForegroundColor Cyan
+        exit 0
+    }
+
+    Write-Host "The install did not finish (exit code $($elevated.ExitCode)). Read the elevated window for the error." -ForegroundColor Red
+    exit 1
 }
 
-if (-not (Test-Administrator) -and -not $DryRun) {
+if (-not $DryRun -and -not $Uninstall -and -not (Test-Administrator)) {
     Invoke-Elevated
 }
 
