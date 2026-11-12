@@ -18,7 +18,6 @@ internal sealed partial class ClipboardPage : DynamicListPage
 
     private readonly ClipboardStore _store = ClipboardStore.Instance;
     private readonly SettingsManager _settings = SettingsManager.Instance;
-    private int _lastCount;
     private bool _suppressRefresh;
 
     public ClipboardPage()
@@ -29,7 +28,6 @@ internal sealed partial class ClipboardPage : DynamicListPage
         PlaceholderText = "Search clipboard history";
         ShowDetails = true;
 
-        _lastCount = _store.All().Count;
         _store.Changed += OnStoreChanged;
         _settings.Settings.SettingsChanged += OnSettingsChanged;
     }
@@ -38,17 +36,13 @@ internal sealed partial class ClipboardPage : DynamicListPage
     {
         if (_suppressRefresh)
         {
+            // The delete action leaves a tombstone in place of the row. Rebuilding
+            // the list here would send the selection back to the first item.
             _suppressRefresh = false;
-            _lastCount = _store.All().Count;
             return;
         }
 
-        var count = _store.All().Count;
-
-        // Keep the selected row in place when a row was deleted; a full rebuild
-        // would otherwise jump the list back to the first item.
-        RaiseItemsChanged(count < _lastCount ? -2 : -1);
-        _lastCount = count;
+        RaiseItemsChanged();
     }
 
     private void OnSettingsChanged(object? sender, Settings e)
@@ -70,7 +64,12 @@ internal sealed partial class ClipboardPage : DynamicListPage
             return entries.Count == 0 ? [EmptyItem()] : entries.Select(e => ItemFactory.ForClipboard(e, onDelete: () => _suppressRefresh = true)).ToArray();
         }
 
-        return entries.Where(e => Matches(e, query)).Select(e => ItemFactory.ForClipboard(e, onDelete: () => _suppressRefresh = true)).ToArray();
+        var matches = entries
+            .Where(e => Matches(e, query))
+            .Select(e => ItemFactory.ForClipboard(e, onDelete: () => _suppressRefresh = true))
+            .ToArray();
+
+        return matches.Length == 0 ? [NoMatchesItem(query)] : matches;
     }
 
     internal static bool Matches(ClipboardEntry entry, string query)
@@ -83,7 +82,7 @@ internal sealed partial class ClipboardPage : DynamicListPage
         // Images have no text to search, so match the word "image" or the file name.
         // Use only the name: the storage path itself contains "Notes" and would match everything.
         var fileName = System.IO.Path.GetFileName(entry.ImagePath ?? string.Empty);
-        return "image".Contains(query, StringComparison.OrdinalIgnoreCase)
+        return query.StartsWith("image", StringComparison.OrdinalIgnoreCase)
             || fileName.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
     internal static string Headline(string text)
@@ -106,6 +105,13 @@ internal sealed partial class ClipboardPage : DynamicListPage
     {
         Title = "Nothing copied yet",
         Subtitle = "Text and images you copy will appear here",
+        Icon = NotesIcons.Clipboard,
+    };
+
+    private static ListItem NoMatchesItem(string query) => new(new NoOpCommand())
+    {
+        Title = "No matches",
+        Subtitle = $"Nothing in the clipboard history matches \"{query}\"",
         Icon = NotesIcons.Clipboard,
     };
 }

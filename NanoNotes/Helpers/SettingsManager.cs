@@ -57,7 +57,7 @@ internal sealed partial class SettingsManager : JsonSettingsManager
 
     public bool SaveImages => _saveImages.Value;
 
-    internal static string SettingsJsonPath()
+    private static string SettingsJsonPath()
     {
         var directory = Utilities.BaseSettingsPath("notes");
         Directory.CreateDirectory(directory);

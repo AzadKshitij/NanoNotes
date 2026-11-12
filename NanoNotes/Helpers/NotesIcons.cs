@@ -14,8 +14,6 @@ internal static class NotesIcons
 {
     public static readonly IconInfo Note = IconHelpers.FromRelativePath(@"Assets\icons\note.png");
     public static readonly IconInfo Add = IconHelpers.FromRelativePath(@"Assets\icons\add.png");
-    public static readonly IconInfo Copy = IconHelpers.FromRelativePath(@"Assets\icons\copy.png");
-    public static readonly IconInfo Delete = IconHelpers.FromRelativePath(@"Assets\icons\delete.png");
     public static readonly IconInfo File = IconHelpers.FromRelativePath(@"Assets\icons\file.png");
     public static readonly IconInfo Clipboard = IconHelpers.FromRelativePath(@"Assets\icons\clipboard.png");
     public static readonly IconInfo History = IconHelpers.FromRelativePath(@"Assets\icons\history.png");
@@ -24,6 +22,8 @@ internal static class NotesIcons
 
     // Menu entries sit on a much smaller icon box than list rows, where the
     // sticker PNGs shrink to an unreadable size. Font glyphs stay crisp.
+    public static readonly IconInfo CopyGlyph = new("\uE8C8");
+    public static readonly IconInfo PasteGlyph = new("\uE77B");
     public static readonly IconInfo AddGlyph = new("\uE710");
     public static readonly IconInfo DeleteGlyph = new("\uE74D");
 }

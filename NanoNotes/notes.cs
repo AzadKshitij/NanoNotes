@@ -21,6 +21,10 @@ public sealed partial class notes : IExtension, IDisposable
     {
         this._extensionDisposedEvent = extensionDisposedEvent;
         this._clipboardMonitor = new ClipboardMonitor(ClipboardStore.Instance, SettingsManager.Instance);
+
+        // Start watching the foreground window right away: the app the user
+        // comes from has to be known before the palette takes the focus.
+        _ = ForegroundTracker.Instance;
     }
 
     public object? GetProvider(ProviderType providerType)
@@ -35,6 +39,11 @@ public sealed partial class notes : IExtension, IDisposable
     public void Dispose()
     {
         this._clipboardMonitor.Dispose();
+
+        // The clipboard history is written a second after a change; flush it so
+        // the last copy is not lost when the palette closes.
+        ClipboardStore.Instance.Dispose();
+
         this._extensionDisposedEvent.Set();
     }
 }

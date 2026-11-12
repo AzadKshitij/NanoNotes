@@ -3,14 +3,14 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
-using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using Microsoft.CommandPalette.Extensions.Toolkit;
-using Windows.Graphics.Imaging;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage.Streams;
 
 namespace notes;
 
@@ -18,10 +18,18 @@ namespace notes;
 /// A single background STA thread that owns clipboard access. The WinRT clipboard
 /// API hangs when called from a plain MTA thread, so every read and write is
 /// marshalled here. One thread for the whole extension keeps the cost at one
-/// idle wait handle.
+/// idle wait handle, and it keeps the reader and the writer from fighting over
+/// the clipboard at the same time.
 /// </summary>
 internal sealed partial class ClipboardThreadQueue : IDisposable
 {
+    /// <summary>
+    /// The one clipboard thread of the extension. The monitor and the writer
+    /// share it: two threads calling the OLE clipboard at once only buy
+    /// intermittent "clipboard busy" failures.
+    /// </summary>
+    public static ClipboardThreadQueue Shared { get; } = new();
+
     private readonly Thread _thread;
     private readonly ConcurrentQueue<Action> _tasks = new();
     private readonly AutoResetEvent _signal = new(false);
@@ -84,15 +92,21 @@ internal sealed partial class ClipboardThreadQueue : IDisposable
 
 /// <summary>
 /// Writes clipboard content from the UI thread without blocking it on the
-/// clipboard's STA requirements. Text uses the toolkit helper; images are
-/// decoded to a DIB, the format Paint and other classic apps paste from.
+/// clipboard's STA requirements. Text uses the toolkit helper; images need the
+/// package built here.
 /// </summary>
-internal static partial class ClipboardWriter
+internal static class ClipboardWriter
 {
-    private const uint CF_DIB = 8;
-    private const uint GMEM_MOVEABLE = 0x0002;
+    private static readonly ClipboardThreadQueue _queue = ClipboardThreadQueue.Shared;
 
-    private static readonly ClipboardThreadQueue _queue = new();
+    /// <summary>
+    /// The bytes of the image currently on the clipboard. The clipboard asks the
+    /// source application for the picture when the target application pastes
+    /// it, which can happen seconds later and in another process. The stream has
+    /// to stay alive until then, so it is kept here instead of being disposed
+    /// with the copy.
+    /// </summary>
+    private static InMemoryRandomAccessStream? _liveStream;
 
     /// <summary>
     /// Copies an image file back onto the clipboard. Blocks until the clipboard
@@ -107,7 +121,32 @@ internal static partial class ClipboardWriter
         {
             try
             {
-                SetDibOnClipboard(CreateDib(path));
+                var bytes = File.ReadAllBytes(path);
+
+                // The picture has to live in memory. A stream over the file on
+                // disk would be closed by the time the target application asks
+                // for the clipboard content, and the paste would come back
+                // empty.
+                var stream = new InMemoryRandomAccessStream();
+                using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+                {
+                    writer.WriteBytes(bytes);
+                    writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+                    writer.DetachStream();
+                }
+
+                stream.Seek(0);
+
+                var reference = RandomAccessStreamReference.CreateFromStream(stream);
+                var package = new DataPackage
+                {
+                    RequestedOperation = DataPackageOperation.Copy,
+                };
+                package.SetBitmap(reference);
+                Clipboard.SetContent(package);
+                Clipboard.Flush();
+
+                _liveStream = stream;
             }
             catch (Exception ex)
             {
@@ -119,7 +158,7 @@ internal static partial class ClipboardWriter
             }
         });
 
-        if (!finished.Wait(TimeSpan.FromSeconds(5)))
+        if (!finished.Wait(TimeSpan.FromSeconds(2)))
         {
             throw new TimeoutException("The clipboard did not accept the image in time.");
         }
@@ -129,125 +168,4 @@ internal static partial class ClipboardWriter
             throw new InvalidOperationException("Could not copy the image to the clipboard.", failure);
         }
     }
-
-    private static byte[] CreateDib(string path)
-    {
-        using var file = File.OpenRead(path);
-        using var stream = file.AsRandomAccessStream();
-        var decoder = BitmapDecoder.CreateAsync(stream).AsTask().GetAwaiter().GetResult();
-
-        var width = (int)decoder.PixelWidth;
-        var height = (int)decoder.PixelHeight;
-        var provider = decoder.GetPixelDataAsync(
-            BitmapPixelFormat.Bgra8,
-            BitmapAlphaMode.Premultiplied,
-            new BitmapTransform(),
-            ExifOrientationMode.IgnoreExifOrientation,
-            ColorManagementMode.DoNotColorManage).AsTask().GetAwaiter().GetResult();
-        var pixels = provider.DetachPixelData();
-        var stride = width * 4;
-
-        if (width <= 0 || height <= 0 || pixels.Length < stride * height)
-        {
-            throw new InvalidDataException("The image has no usable pixels.");
-        }
-
-        const int headerSize = 40;
-        var dib = new byte[headerSize + (stride * height)];
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(0), headerSize);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(4), width);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(8), height);
-        BinaryPrimitives.WriteInt16LittleEndian(dib.AsSpan(12), 1);
-        BinaryPrimitives.WriteInt16LittleEndian(dib.AsSpan(14), 32);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(16), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(20), stride * height);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(24), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(28), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(32), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(36), 0);
-
-        // DIB rows run bottom-up.
-        for (var y = 0; y < height; y++)
-        {
-            Buffer.BlockCopy(pixels, y * stride, dib, headerSize + ((height - 1 - y) * stride), stride);
-        }
-
-        return dib;
-    }
-
-    private static void SetDibOnClipboard(byte[] dib)
-    {
-        if (!OpenClipboard(IntPtr.Zero))
-        {
-            throw new InvalidOperationException($"Could not open the clipboard ({Marshal.GetLastPInvokeError()}).");
-        }
-
-        try
-        {
-            if (!EmptyClipboard())
-            {
-                throw new InvalidOperationException($"Could not clear the clipboard ({Marshal.GetLastPInvokeError()}).");
-            }
-
-            var handle = GlobalAlloc(GMEM_MOVEABLE, (nuint)dib.Length);
-            if (handle == IntPtr.Zero)
-            {
-                throw new InvalidOperationException($"Could not allocate clipboard memory ({Marshal.GetLastPInvokeError()}).");
-            }
-
-            var pointer = GlobalLock(handle);
-            if (pointer == IntPtr.Zero)
-            {
-                _ = GlobalFree(handle);
-                throw new InvalidOperationException($"Could not lock clipboard memory ({Marshal.GetLastPInvokeError()}).");
-            }
-
-            try
-            {
-                Marshal.Copy(dib, 0, pointer, dib.Length);
-            }
-            finally
-            {
-                _ = GlobalUnlock(handle);
-            }
-
-            if (SetClipboardData(CF_DIB, handle) == IntPtr.Zero)
-            {
-                _ = GlobalFree(handle);
-                throw new InvalidOperationException($"Could not put the image on the clipboard ({Marshal.GetLastPInvokeError()}).");
-            }
-        }
-        finally
-        {
-            _ = CloseClipboard();
-        }
-    }
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool OpenClipboard(IntPtr newOwner);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool EmptyClipboard();
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    private static partial IntPtr SetClipboardData(uint format, IntPtr memory);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool CloseClipboard();
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial IntPtr GlobalAlloc(uint flags, nuint bytes);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial IntPtr GlobalLock(IntPtr memory);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GlobalUnlock(IntPtr memory);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial IntPtr GlobalFree(IntPtr memory);
 }

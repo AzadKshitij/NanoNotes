@@ -9,16 +9,51 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using Microsoft.CommandPalette.Extensions.Toolkit;
 
 namespace notes;
 
 /// <summary>
 /// One captured clipboard item: either a piece of text or an image on disk.
 /// </summary>
+[JsonConverter(typeof(ClipboardEntryKindConverter))]
 internal enum ClipboardEntryKind
 {
     Text,
     Image,
+}
+
+/// <summary>
+/// Reads and writes the kind of an entry as a name, so the history file stays
+/// readable and hand-editable. Numbers are still accepted, because older files
+/// wrote them.
+/// </summary>
+internal sealed class ClipboardEntryKindConverter : JsonConverter<ClipboardEntryKind>
+{
+    public override ClipboardEntryKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Number)
+        {
+            var number = reader.GetInt32();
+            return Enum.IsDefined(typeof(ClipboardEntryKind), number)
+                ? (ClipboardEntryKind)number
+                : ClipboardEntryKind.Text;
+        }
+
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            return Enum.TryParse<ClipboardEntryKind>(reader.GetString(), ignoreCase: true, out var parsed)
+                ? parsed
+                : ClipboardEntryKind.Text;
+        }
+
+        return ClipboardEntryKind.Text;
+    }
+
+    public override void Write(Utf8JsonWriter writer, ClipboardEntryKind value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value.ToString());
+    }
 }
 
 internal sealed class ClipboardEntry
@@ -67,7 +102,7 @@ internal sealed partial class ClipboardJsonContext : JsonSerializerContext
 ///
 /// Writes are debounced: a burst of copies produces a single save a second later.
 /// </summary>
-internal sealed class ClipboardStore : IDisposable
+internal sealed partial class ClipboardStore : IDisposable
 {
     /// <summary>
     /// Safety net so a very busy day cannot grow the file without bound. The
@@ -77,12 +112,22 @@ internal sealed class ClipboardStore : IDisposable
 
     private const int SaveDelayMilliseconds = 1000;
 
+    /// <summary>
+    /// An image file younger than this is left alone when the folder is swept
+    /// for orphans: it may be a picture that was just copied and whose entry is
+    /// written a moment later.
+    /// </summary>
+    private static readonly TimeSpan OrphanGrace = TimeSpan.FromMinutes(10);
+
     private static readonly Lazy<ClipboardStore> _instance = new(() => new ClipboardStore());
 
     private readonly object _gate = new();
     private readonly List<ClipboardEntry> _entries = [];
+    private readonly List<string> _pendingImageDeletes = [];
+    private readonly List<(string Content, DateTimeOffset When)> _ownCopies = [];
     private bool _loaded;
     private bool _dirty;
+    private bool _loadBlocked;
     private Timer? _saveTimer;
 
     private ClipboardStore()
@@ -113,8 +158,6 @@ internal sealed class ClipboardStore : IDisposable
             return _entries.ToArray();
         }
     }
-
-    public ClipboardEntry? Find(string id) => All().FirstOrDefault(e => e.Id == id);
 
     /// <summary>
     /// Saves a piece of copied text. Consecutive copies of the same text are
@@ -169,11 +212,7 @@ internal sealed class ClipboardStore : IDisposable
             removed = entry is not null && _entries.Remove(entry);
             if (removed)
             {
-                if (entry!.ImagePath is not null)
-                {
-                    TryDeleteFile(entry.ImagePath);
-                }
-
+                ScheduleImageDelete(entry!);
                 ScheduleSave();
             }
         }
@@ -219,10 +258,7 @@ internal sealed class ClipboardStore : IDisposable
 
                 foreach (var entry in removed)
                 {
-                    if (entry.ImagePath is not null)
-                    {
-                        TryDeleteFile(entry.ImagePath);
-                    }
+                    ScheduleImageDelete(entry);
                 }
 
                 ScheduleSave();
@@ -233,20 +269,42 @@ internal sealed class ClipboardStore : IDisposable
     }
 
     /// <summary>
-    /// Makes sure the JSON file exists, so it can be opened in an editor.
+    /// Notes that the app itself put something on the clipboard, for example
+    /// when a note is pasted into another window. The history keeps what the
+    /// user copied, so these copies are skipped.
     /// </summary>
-    public void EnsureFile()
+    public void MarkOwnCopy(string content)
     {
         lock (_gate)
         {
-            EnsureLoaded();
-            if (!File.Exists(DataFilePath))
+            _ownCopies.Add((content, DateTimeOffset.Now));
+
+            if (_ownCopies.Count > 20)
             {
-                SaveLocked();
+                _ownCopies.RemoveAt(0);
             }
         }
     }
 
+    /// <summary>
+    /// True when the given content is one the app copied itself, moments ago.
+    /// </summary>
+    public bool IsOwnCopy(string content)
+    {
+        lock (_gate)
+        {
+            var cutoff = DateTimeOffset.Now - TimeSpan.FromSeconds(10);
+            _ownCopies.RemoveAll(c => c.When < cutoff);
+
+            return _ownCopies.Any(c => string.Equals(c.Content, content, StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// Writes any pending change to disk. The extension calls this when it
+    /// shuts down, so a copy made a moment before the palette closes is not
+    /// lost to the debounce.
+    /// </summary>
     public void Dispose()
     {
         lock (_gate)
@@ -256,6 +314,8 @@ internal sealed class ClipboardStore : IDisposable
                 _saveTimer.Dispose();
                 _saveTimer = null;
             }
+
+            SaveIfDirty();
         }
     }
 
@@ -275,10 +335,25 @@ internal sealed class ClipboardStore : IDisposable
             }
 
             _entries.Insert(0, entry);
+            TrimToLimit();
             ScheduleSave();
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Keeps the history within <see cref="MaxEntries"/>. The oldest entries go
+    /// first; their images are only deleted when nothing else points at them.
+    /// </summary>
+    private void TrimToLimit()
+    {
+        while (_entries.Count > MaxEntries)
+        {
+            var oldest = _entries[^1];
+            _entries.RemoveAt(_entries.Count - 1);
+            ScheduleImageDelete(oldest);
+        }
     }
 
     private static bool SameContent(ClipboardEntry a, ClipboardEntry b)
@@ -291,6 +366,28 @@ internal sealed class ClipboardStore : IDisposable
         return string.Equals(a.ImagePath, b.ImagePath, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Marks an image file for deletion once the history that pointed at it has
+    /// been written to disk. The same picture can sit in several entries, so
+    /// the file is only removed when no other entry uses it.
+    /// </summary>
+    private void ScheduleImageDelete(ClipboardEntry entry)
+    {
+        if (string.IsNullOrEmpty(entry.ImagePath))
+        {
+            return;
+        }
+
+        var stillUsed = _entries.Any(e =>
+            !string.IsNullOrEmpty(e.ImagePath)
+            && string.Equals(e.ImagePath, entry.ImagePath, StringComparison.OrdinalIgnoreCase));
+
+        if (!stillUsed)
+        {
+            _pendingImageDeletes.Add(entry.ImagePath!);
+        }
+    }
+
     private void EnsureLoaded()
     {
         if (_loaded)
@@ -298,32 +395,47 @@ internal sealed class ClipboardStore : IDisposable
             return;
         }
 
-        _loaded = true;
-
         if (!File.Exists(DataFilePath))
         {
+            _loaded = true;
             return;
         }
 
         try
         {
-            var json = File.ReadAllText(DataFilePath);
-            var file = JsonSerializer.Deserialize(json, ClipboardJsonContext.Default.ClipboardFile);
-            _entries.Clear();
-            _entries.AddRange((file?.Entries ?? []).OrderByDescending(e => e.Created));
+            LoadFromDisk();
+            _loaded = true;
+            _loadBlocked = false;
         }
-        catch (Exception)
+        catch (JsonException)
         {
-            // Never lose the file silently: keep it next to the live one and start clean.
-            try
-            {
-                File.Move(DataFilePath, DataFilePath + ".bad", overwrite: true);
-            }
-            catch (IOException)
-            {
-            }
-
+            // The file is really broken. Keep it next to the live one so nothing
+            // is lost, and start with an empty history.
+            TryMoveAside();
             _entries.Clear();
+            _loaded = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The file is locked or half-written, most likely by an editor that
+            // has it open. Keep what we have, try again later, and refuse to
+            // write over the file so the data on disk survives.
+            _loadBlocked = true;
+            ExtensionHost.LogMessage("notes clipboard history unreadable: " + ex.Message);
+        }
+    }
+
+    private static void TryMoveAside()
+    {
+        try
+        {
+            File.Move(DataFilePath, DataFilePath + ".bad", overwrite: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 
@@ -343,26 +455,48 @@ internal sealed class ClipboardStore : IDisposable
 
     private void SaveIfDirty()
     {
-        lock (_gate)
+        try
         {
-            if (!_dirty)
+            lock (_gate)
             {
-                return;
-            }
+                if (!_dirty)
+                {
+                    return;
+                }
 
-            SaveLocked();
-            _dirty = false;
+                SaveLocked();
+                _dirty = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            // This runs on a threadpool thread: an exception here would take the
+            // whole extension down.
+            ExtensionHost.LogMessage("notes clipboard save failed: " + ex.Message);
         }
     }
 
     private void SaveLocked()
     {
+        if (_loadBlocked)
+        {
+            throw new IOException("The clipboard history file could not be read, so it was left untouched.");
+        }
+
         Directory.CreateDirectory(DataDirectory);
 
         var json = JsonSerializer.Serialize(new ClipboardFile { Entries = _entries }, ClipboardJsonContext.Default.ClipboardFile);
         var temp = DataFilePath + ".tmp";
         File.WriteAllText(temp, json);
         File.Move(temp, DataFilePath, overwrite: true);
+
+        // The history no longer points at these pictures, so they can go.
+        foreach (var path in _pendingImageDeletes)
+        {
+            TryDeleteFile(path);
+        }
+
+        _pendingImageDeletes.Clear();
     }
 
     private static void PruneOrphanImages()
@@ -381,12 +515,22 @@ internal sealed class ClipboardStore : IDisposable
                     .Select(p => Path.GetFileName(p!)),
                 StringComparer.OrdinalIgnoreCase);
 
+            var cutoff = DateTimeOffset.UtcNow - OrphanGrace;
+
             foreach (var path in Directory.EnumerateFiles(ImageDirectory, "*.png"))
             {
-                if (!referenced.Contains(Path.GetFileName(path)))
+                if (referenced.Contains(Path.GetFileName(path)))
                 {
-                    TryDeleteFile(path);
+                    continue;
                 }
+
+                // A picture that was just copied may not have its entry yet.
+                if (File.GetLastWriteTimeUtc(path) > cutoff.UtcDateTime)
+                {
+                    continue;
+                }
+
+                TryDeleteFile(path);
             }
         }
         catch (IOException)
@@ -412,5 +556,34 @@ internal sealed class ClipboardStore : IDisposable
         catch (UnauthorizedAccessException)
         {
         }
+    }
+
+    private void LoadFromDisk()
+    {
+        var json = File.ReadAllText(DataFilePath);
+        var file = JsonSerializer.Deserialize(json, ClipboardJsonContext.Default.ClipboardFile);
+
+        _entries.Clear();
+        foreach (var entry in file?.Entries ?? [])
+        {
+            if (entry is null)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(entry.Id))
+            {
+                entry.Id = Guid.NewGuid().ToString("n");
+            }
+
+            if (entry.Created == default)
+            {
+                entry.Created = DateTimeOffset.Now;
+            }
+
+            _entries.Add(entry);
+        }
+
+        _entries.Sort((a, b) => b.Created.CompareTo(a.Created));
     }
 }

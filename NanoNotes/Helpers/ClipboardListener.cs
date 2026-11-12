@@ -48,7 +48,11 @@ internal sealed partial class ClipboardListener : IDisposable
         };
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
-        _ready.Wait(TimeSpan.FromSeconds(10));
+
+        if (!_ready.Wait(TimeSpan.FromSeconds(10)))
+        {
+            ExtensionHost.LogMessage("notes clipboard listener was not ready in time");
+        }
     }
 
     private void Run()
@@ -131,8 +135,21 @@ internal sealed partial class ClipboardListener : IDisposable
         }
 
         _disposed = true;
-        PostThreadMessage(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-        _thread.Join();
+
+        // The window may never have been created: the thread that creates it can
+        // take longer than the constructor's wait. Posting to a thread id of
+        // zero does nothing, and joining it then waits forever.
+        if (_threadId != 0)
+        {
+            PostThreadMessage(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        if (!_thread.Join(TimeSpan.FromSeconds(5)))
+        {
+            ExtensionHost.LogMessage("notes clipboard listener did not stop in time");
+            return;
+        }
+
         _current = null;
         _ready.Dispose();
     }
