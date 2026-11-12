@@ -40,7 +40,11 @@ internal static class DetailsPreview
     public static Details ForNote(Note note)
     {
         var text = note.Text ?? string.Empty;
-        return Cached($"note|{note.Created.Ticks}|{note.Updated.Ticks}|{text}", () => BuildNoteDetails(note));
+
+        // The key names the content without copying the text into it: the id and
+        // the timestamp identify it, and the hash catches a hand-edited note
+        // whose timestamp was left alone.
+        return Cached($"note|{note.Id}|{note.Updated.Ticks}|{text.GetHashCode()}", () => BuildNoteDetails(note));
     }
 
     public static Details ForClipboard(ClipboardEntry entry)
@@ -51,7 +55,7 @@ internal static class DetailsPreview
         }
 
         var text = entry.Text ?? string.Empty;
-        return Cached($"clip|{entry.Created.Ticks}|{text}", () => BuildClipboardDetails(entry, text));
+        return Cached($"clip|{entry.Id}|{entry.Created.Ticks}|{text.GetHashCode()}", () => BuildClipboardDetails(entry, text));
     }
 
     private static Details BuildNoteDetails(Note note)

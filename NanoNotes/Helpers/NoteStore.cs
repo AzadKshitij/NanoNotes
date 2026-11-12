@@ -120,8 +120,6 @@ internal sealed class NoteStore
         }
     }
 
-    public Note? Find(string id) => All().FirstOrDefault(n => n.Id == id);
-
     public bool Contains(string text)
     {
         var trimmed = text.Trim();
