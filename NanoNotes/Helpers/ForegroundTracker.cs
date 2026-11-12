@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -12,42 +11,48 @@ using Microsoft.CommandPalette.Extensions.Toolkit;
 namespace notes;
 
 /// <summary>
-/// Remembers which window was in front before the Command Palette took the
-/// focus. The palette floats on top of the app the user was working in, so
-/// pasting a note back into that app means finding that app first.
+/// Remembers the app the user is working in, and the control that has the
+/// caret in it.
 ///
-/// The list is filled by a WinEvent hook. The callback is delivered to the
-/// thread that installed the hook, so that thread needs a message pump.
+/// The window in front is not the same thing as the box with the caret in it.
+/// The palette takes the focus while it is open, and the user can click into
+/// another app in the meantime.
+///
+/// Every thread keeps its own focus, even when it is in the background. So the
+/// caret of the app the user came from can be read while the palette is in
+/// front: it is the focus of that app's thread.
+///
+/// The focus is polled rather than watched. The focus events are not
+/// delivered to an extension, but the focus itself can be read at any time.
 /// </summary>
 internal sealed partial class ForegroundTracker : IDisposable
 {
-    private const uint EventSystemForeground = 0x0003;
-    private const uint WineventOutOfContext = 0x0000;
-    private const uint WineventSkipOwnProcess = 0x0002;
-
     /// <summary>
-    /// How many foreground changes to remember. A handful is enough to find the
-    /// window behind the palette even when the user clicked somewhere else
-    /// while the palette was open.
-    /// </summary>
-    private const int MaxHistory = 16;
-
-    /// <summary>
-    /// The palette's own process. It is skipped: typing into it would put the
-    /// text in its search box instead of in the app the user was working in.
+    /// The palette's own process. It is skipped: typing into one of those
+    /// would put the text in its search box instead of in the app the user was
+    /// working in.
     /// </summary>
     private const string PaletteProcessName = "Microsoft.CmdPal";
+
+    /// <summary>
+    /// How often to look at the focus. A tenth of a second is quick enough
+    /// that the app is never missed, and slow enough to cost nothing.
+    /// </summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
 
     private static readonly Lazy<ForegroundTracker> _instance = new(() => new ForegroundTracker());
 
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _ready = new(false);
-    private readonly List<IntPtr> _history = [];
     private readonly object _gate = new();
 
-    private WinEventCallback? _callback;
-    private IntPtr _hook;
     private bool _disposed;
+
+    /// <summary>
+    /// The app the user is working in: the last window in front that was not
+    /// the palette.
+    /// </summary>
+    private IntPtr _appWindow;
 
     public ForegroundTracker()
     {
@@ -69,23 +74,42 @@ internal sealed partial class ForegroundTracker : IDisposable
     public static ForegroundTracker Instance => _instance.Value;
 
     /// <summary>
-    /// The window that was in front before <paramref name="current"/>, as long as
-    /// it is still open.
+    /// The app the user is working in: the last window in front that was not
+    /// the palette.
     /// </summary>
-    public IntPtr WindowBefore(IntPtr current)
+    public IntPtr AppWindow()
     {
         lock (_gate)
         {
-            foreach (var window in _history)
-            {
-                if (window != current && !IsPaletteWindow(window) && IsWindow(window))
-                {
-                    return window;
-                }
-            }
+            return _appWindow;
+        }
+    }
+
+    /// <summary>
+    /// The control that has the caret in the app the user is working in. The
+    /// focus of a thread stays with that thread, so this can be read while the
+    /// palette has the focus.
+    /// </summary>
+    public IntPtr FocusedControl()
+    {
+        var app = AppWindow();
+        if (app == IntPtr.Zero || !IsWindow(app))
+        {
+            return IntPtr.Zero;
         }
 
-        return IntPtr.Zero;
+        var thread = GetWindowThreadProcessId(app, out _);
+        if (thread == 0 || !TryGetFocus(thread, out var focus))
+        {
+            return IntPtr.Zero;
+        }
+
+        if (IsPaletteWindow(focus))
+        {
+            return IntPtr.Zero;
+        }
+
+        return focus;
     }
 
     /// <summary>
@@ -125,13 +149,6 @@ internal sealed partial class ForegroundTracker : IDisposable
         }
 
         _disposed = true;
-
-        if (_hook != IntPtr.Zero)
-        {
-            UnhookWinEvent(_hook);
-            _hook = IntPtr.Zero;
-        }
-
         _thread.Join(TimeSpan.FromSeconds(2));
         _ready.Dispose();
     }
@@ -140,104 +157,104 @@ internal sealed partial class ForegroundTracker : IDisposable
     {
         try
         {
-            _callback = OnForegroundChanged;
-            _hook = SetWinEventHook(
-                EventSystemForeground,
-                EventSystemForeground,
-                IntPtr.Zero,
-                _callback,
-                0,
-                0,
-                WineventOutOfContext | WineventSkipOwnProcess);
-
-            var current = GetForegroundWindow();
-            if (current != IntPtr.Zero)
-            {
-                _history.Add(current);
-            }
-
             _ready.Set();
 
-            while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
+            while (!_disposed)
             {
-                TranslateMessage(ref message);
-                DispatchMessage(ref message);
+                Poll();
+
+                Thread.Sleep(PollInterval);
             }
         }
         catch (Exception ex)
         {
             ExtensionHost.LogMessage("notes foreground tracker failed: " + ex.Message);
         }
-        finally
-        {
-            _ready.Set();
-        }
     }
 
-    private void OnForegroundChanged(IntPtr hook, uint eventType, IntPtr window, int idObject, int idChild, uint threadId, uint time)
+    /// <summary>
+    /// Notes the app in front. The palette is skipped: it is not the app the
+    /// user is working in.
+    /// </summary>
+    private void Poll()
     {
-        if (window == IntPtr.Zero)
+        var foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero || IsPaletteWindow(foreground))
         {
             return;
         }
 
         lock (_gate)
         {
-            _history.Remove(window);
-            _history.Insert(0, window);
-
-            if (_history.Count > MaxHistory)
+            if (_appWindow == foreground)
             {
-                _history.RemoveAt(_history.Count - 1);
+                return;
             }
+
+            _appWindow = foreground;
         }
     }
 
-    private delegate void WinEventCallback(IntPtr hook, uint eventType, IntPtr window, int idObject, int idChild, uint threadId, uint time);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Message
+    /// <summary>
+    /// Reads the focus of the given thread. The size field has to be set
+    /// before the call, so the struct cannot be passed as an out parameter.
+    /// </summary>
+    private static bool TryGetFocus(uint threadId, out IntPtr focus)
     {
-        public IntPtr Window;
-        public uint Id;
-        public IntPtr WParam;
-        public IntPtr LParam;
-        public uint Time;
-        public int X;
-        public int Y;
+        focus = IntPtr.Zero;
+        if (threadId == 0)
+        {
+            return false;
+        }
+
+        var info = new GuiThreadInfo
+        {
+            Size = Marshal.SizeOf<GuiThreadInfo>(),
+        };
+
+        if (!GetGUIThreadInfo(threadId, ref info))
+        {
+            return false;
+        }
+
+        focus = info.Focus;
+        return focus != IntPtr.Zero;
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetWinEventHook(
-        uint eventMin,
-        uint eventMax,
-        IntPtr moduleHandle,
-        WinEventCallback callback,
-        uint processId,
-        uint threadId,
-        uint flags);
-
-    [DllImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UnhookWinEvent(IntPtr hook);
+    private static partial bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr GetForegroundWindow();
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool IsWindow(IntPtr window);
 
     [LibraryImport("user32.dll")]
-    private static partial IntPtr GetForegroundWindow();
-
-    [LibraryImport("user32.dll")]
     private static partial uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 
-    [LibraryImport("user32.dll", EntryPoint = "GetMessageW")]
-    private static partial int GetMessage(out Message message, IntPtr window, uint min, uint max);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public int Size;
+        public uint Flags;
+        public IntPtr Active;
+        public IntPtr Focus;
+        public IntPtr Capture;
+        public IntPtr MenuOwner;
+        public IntPtr MoveSize;
+        public IntPtr Caret;
+        public Rect CaretRect;
+    }
 
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool TranslateMessage(ref Message message);
-
-    [LibraryImport("user32.dll", EntryPoint = "DispatchMessageW")]
-    private static partial IntPtr DispatchMessage(ref Message message);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 }

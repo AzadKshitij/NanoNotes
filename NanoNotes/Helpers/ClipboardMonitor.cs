@@ -126,7 +126,7 @@ internal sealed partial class ClipboardMonitor : IDisposable
                     {
                         DebugLog.Write($"captured image: {saved.Value.Width}x{saved.Value.Height}");
 
-                        if (_store.IsOwnCopy(saved.Value.Path))
+                        if (_store.IsOwnImageCopy())
                         {
                             DebugLog.Write("skipped own copy");
                             return;
