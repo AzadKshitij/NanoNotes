@@ -23,8 +23,10 @@ public sealed partial class notes : IExtension, IDisposable
         this._clipboardMonitor = new ClipboardMonitor(ClipboardStore.Instance, SettingsManager.Instance);
 
         // Start watching the foreground window right away: the app the user
-        // comes from has to be known before the palette takes the focus.
-        _ = ForegroundTracker.Instance;
+        // comes from has to be known before the palette takes the focus. The
+        // tracker waits for its own thread to come up, so it starts in the
+        // background and the extension does not wait for it.
+        ThreadPool.QueueUserWorkItem(_ => _ = ForegroundTracker.Instance);
     }
 
     public object? GetProvider(ProviderType providerType)

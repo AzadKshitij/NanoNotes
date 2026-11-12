@@ -132,7 +132,14 @@ internal static class ItemFactory
     {
         Name = "Paste",
         Icon = NotesIcons.PasteGlyph,
-        Result = CommandResult.Dismiss(),
+
+        // The palette has to close before the keystroke can reach the app, so
+        // the toast is what the user sees instead of it.
+        Result = CommandResult.ShowToast(new ToastArgs
+        {
+            Message = "Pasting into the app you came from",
+            Result = CommandResult.Dismiss(),
+        }),
     })
     {
         Title = "Paste",
@@ -162,7 +169,14 @@ internal static class ItemFactory
     {
         Name = "Paste",
         Icon = NotesIcons.PasteGlyph,
-        Result = CommandResult.Dismiss(),
+
+        // The palette has to close before the keystroke can reach the app, so
+        // the toast is what the user sees instead of it.
+        Result = CommandResult.ShowToast(new ToastArgs
+        {
+            Message = "Pasting into the app you came from",
+            Result = CommandResult.Dismiss(),
+        }),
     })
     {
         Title = "Paste",

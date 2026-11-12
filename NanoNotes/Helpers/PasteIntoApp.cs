@@ -38,8 +38,7 @@ internal static partial class PasteIntoApp
         // this copy is marked and skipped when the monitor sees it.
         ClipboardStore.Instance.MarkOwnCopy(text);
 
-        ClipboardHelper.SetText(text);
-        SendPaste();
+        SendPaste(() => ClipboardHelper.SetText(text));
     }
 
     /// <summary>
@@ -48,13 +47,18 @@ internal static partial class PasteIntoApp
     /// </summary>
     public static void PasteImage(string path)
     {
-        ClipboardStore.Instance.MarkOwnCopy(path);
+        // The picture is marked by hand: the monitor works out the file name
+        // from the bytes it encodes again, and that name can differ from this
+        // one, so the path is not a reliable marker.
+        ClipboardStore.Instance.MarkOwnImageCopy();
 
-        ClipboardWriter.SetImage(path);
-        SendPaste();
+        // Reading the file and handing it to the clipboard takes a moment. It
+        // happens on the paste thread, so the palette does not freeze while it
+        // runs.
+        SendPaste(() => ClipboardWriter.SetImage(path));
     }
 
-    private static void SendPaste()
+    private static void SendPaste(Action putOnClipboard)
     {
         var palette = GetForegroundWindow();
         var target = ForegroundTracker.Instance.WindowBefore(palette);
@@ -63,6 +67,8 @@ internal static partial class PasteIntoApp
         {
             try
             {
+                putOnClipboard();
+
                 // The palette is still open while the command runs. It closes
                 // right after the command returns, and the focus goes back to
                 // the app the user came from. Wait for that before typing.
@@ -83,11 +89,19 @@ internal static partial class PasteIntoApp
                 {
                     // The palette is still in front: typing now would go into
                     // its own search box.
+                    ExtensionHost.LogMessage("notes paste: the palette was still in front, nothing was pasted");
                     return;
                 }
 
-                if (target != IntPtr.Zero && foreground != target && IsWindow(target))
+                if (target != IntPtr.Zero
+                    && foreground != target
+                    && IsWindow(target)
+                    && IsShellWindow(foreground))
                 {
+                    // Nothing has the focus, the desktop does. Bring back the
+                    // app the user came from. A window the user moved on to
+                    // is left alone: pasting there is what they asked for by
+                    // clicking away from the palette.
                     SetForegroundWindow(target);
                     Thread.Sleep(80);
                 }
@@ -100,6 +114,11 @@ internal static partial class PasteIntoApp
             }
         });
     }
+
+    /// <summary>
+    /// True when nothing has the focus: no window at all, or the desktop.
+    /// </summary>
+    private static bool IsShellWindow(IntPtr window) => window == IntPtr.Zero || window == GetShellWindow();
 
     /// <summary>
     /// Sends Ctrl+V as real keyboard input, so it reaches the focused control
@@ -147,6 +166,10 @@ internal static partial class PasteIntoApp
     private struct InputUnion
     {
         [FieldOffset(0)] public KeyboardInput Keyboard;
+
+        // The mouse input is never used, but it is the largest member of the
+        // native union: without it the struct would be smaller than the
+        // INPUT the system expects and SendInput would refuse the keystrokes.
         [FieldOffset(0)] public MouseInput Mouse;
     }
 
@@ -177,11 +200,14 @@ internal static partial class PasteIntoApp
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetForegroundWindow();
 
-    [LibraryImport("user32.dll")]
+    [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetForegroundWindow(IntPtr window);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool IsWindow(IntPtr window);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr GetShellWindow();
 }

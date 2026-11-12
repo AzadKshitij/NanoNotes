@@ -125,6 +125,7 @@ internal sealed partial class ClipboardStore : IDisposable
     private readonly List<ClipboardEntry> _entries = [];
     private readonly List<string> _pendingImageDeletes = [];
     private readonly List<(string Content, DateTimeOffset When)> _ownCopies = [];
+    private DateTimeOffset? _ownImageCopy;
     private bool _loaded;
     private bool _dirty;
     private bool _loadBlocked;
@@ -297,6 +298,42 @@ internal sealed partial class ClipboardStore : IDisposable
             _ownCopies.RemoveAll(c => c.When < cutoff);
 
             return _ownCopies.Any(c => string.Equals(c.Content, content, StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// Marks that the app itself put a picture on the clipboard. The picture
+    /// cannot be matched by content, because the monitor encodes it again and
+    /// ends up with a different file name, so the next picture it sees is
+    /// skipped.
+    /// </summary>
+    public void MarkOwnImageCopy()
+    {
+        lock (_gate)
+        {
+            _ownImageCopy = DateTimeOffset.Now;
+        }
+    }
+
+    /// <summary>
+    /// True when a picture on the clipboard is the one the app just put there.
+    /// </summary>
+    public bool IsOwnImageCopy()
+    {
+        lock (_gate)
+        {
+            if (_ownImageCopy is null)
+            {
+                return false;
+            }
+
+            if (DateTimeOffset.Now - _ownImageCopy.Value > TimeSpan.FromSeconds(10))
+            {
+                _ownImageCopy = null;
+                return false;
+            }
+
+            return true;
         }
     }
 
