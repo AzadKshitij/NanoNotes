@@ -16,7 +16,7 @@ Find NanoNotes in the palette and its commands show up with their own icons:
 
 ![NanoNotes commands in Command Palette search](docs/search.png)
 
-Search both at once — notes and clipboard history in one list, newest match
+Search both at once. Notes and clipboard history in one list, newest match
 first, each row labelled with where it came from:
 
 ![The Search page mixing note and clipboard entries](docs/search-all.png)
@@ -31,20 +31,22 @@ Clipboard history, text and copied images together:
 
 ## Features
 
-- **Quick notes** — type anything in the palette and save it with Enter; search,
+- **Quick notes**: type anything in the palette and save it with Enter; search,
   copy or delete notes from the same list.
-- **Clipboard history** — every text (and, if enabled, image) you copy is kept in a
+- **Paste it where you were**: every row can copy to the clipboard or paste
+  straight back into the app you came from — a text box, a form, a canvas.
+- **Clipboard history**: every text (and, if enabled, image) you copy is kept in a
   searchable history; pick an entry to view or re-copy it.
-- **Search across both** — one search box looks through your notes and your
+- **Search across both**: one search box looks through your notes and your
   clipboard history together; matches are interleaved newest first and each row
   says whether it is a note or a clipboard item.
-- **Your retention, your call** — clipboard history is pruned after 7–30 days
+- **Your retention, your call**: clipboard history is pruned after 7–30 days
   (14 by default, capped at 500 entries); image capture can be turned off.
-- **Readable data** — notes and history are plain JSON/PNG files in
+- **Readable data**: notes and history are plain JSON/PNG files in
   `Documents\Notes`, editable with any text editor.
-- **No network, no accounts** — no telemetry, no analytics, nothing leaves the
+- **No network, no accounts**: no telemetry, no analytics, nothing leaves the
   machine. See [PRIVACY.md](PRIVACY.md).
-- **Custom icons** — the whole icon family is drawn from vector geometry and
+- **Custom icons**: the whole icon family is drawn from vector geometry and
   shipped as assets (see `NanoNotes\Assets`).
 
 ## Requirements
@@ -53,6 +55,54 @@ Clipboard history, text and copied images together:
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [PowerToys](https://github.com/microsoft/PowerToys) with Command Palette enabled,
   to run the extension
+
+## Install from a GitHub release
+
+Every release ships a signed `x64` + `arm64` MSIX bundle. NanoNotes is signed
+with its own certificate, so Windows has to trust that certificate once before
+it will install the package.
+
+1. Download these three files from the
+   [latest release](https://github.com/AzadKshitij/NanoNotes/releases/latest)
+   into one folder:
+
+   - `NanoNotes_<version>_Bundle.msixbundle`
+   - `NanoNotes.cer`
+   - `Install-NanoNotes.ps1`
+
+2. Run the installer from that folder:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\Install-NanoNotes.ps1
+   ```
+
+   Approve the administrator prompt. The script imports the certificate into
+   `LocalMachine\TrustedPeople`, replaces any older NanoNotes build and installs
+   the bundle. Your notes in `Documents\Notes` are left untouched.
+
+   If PowerShell refuses to run a script downloaded from the internet, unblock it
+   first:
+
+   ```powershell
+   Unblock-File .\Install-NanoNotes.ps1
+   ```
+
+3. Install [PowerToys](https://github.com/microsoft/PowerToys) with Command
+   Palette enabled, restart Command Palette, press **Alt+Space** and type
+   `notes`.
+
+To do the same steps by hand, from an administrator PowerShell:
+
+```powershell
+Import-Certificate -FilePath .\NanoNotes.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+Add-AppxPackage -Path .\NanoNotes_<version>_Bundle.msixbundle
+```
+
+To uninstall:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Install-NanoNotes.ps1 -Uninstall
+```
 
 ## Build
 
@@ -77,11 +127,11 @@ this repository.
 
 ## How it works
 
-- `NanoNotes\Helpers\NoteStore.cs` — the notes JSON file (`Documents\Notes\notes.json`).
-- `NanoNotes\Helpers\ClipboardStore.cs` — clipboard history + image files
+- `NanoNotes\Helpers\NoteStore.cs`: the notes JSON file (`Documents\Notes\notes.json`).
+- `NanoNotes\Helpers\ClipboardStore.cs`: clipboard history + image files
   (`Documents\Notes\Clipboard`).
-- `NanoNotes\Helpers\NotesIcons.cs` — brand icons loaded from `Assets\icons`.
-- `NanoNotes\Pages` — the notes and clipboard lists and detail pages.
+- `NanoNotes\Helpers\NotesIcons.cs`: brand icons loaded from `Assets\icons`.
+- `NanoNotes\Pages`: the notes and clipboard lists and detail pages.
 
 ## Privacy
 
@@ -94,7 +144,7 @@ Copyright (C) 2026 Azad Kshitij.
 
 NanoNotes is free software: you can redistribute it and/or modify it under the
 terms of the **GNU General Public License, version 3 or (at your option) any later
-version** — see [LICENSE](LICENSE).
+version**. See [LICENSE](LICENSE).
 
 If you use this code in your own project, keep the copyright and license notices
 and credit the original author (a link back to this repository is enough). Any
