@@ -77,8 +77,9 @@ it will install the package.
    ```
 
    Approve the administrator prompt. The script imports the certificate into
-   `LocalMachine\TrustedPeople`, replaces any older NanoNotes build and installs
-   the bundle. Your notes in `Documents\Notes` are left untouched.
+   `LocalMachine\TrustedPeople`, replaces any older NanoNotes build, installs
+   the bundle and restarts Command Palette so it loads the new build. Your notes
+   in `Documents\Notes` are left untouched.
 
    If PowerShell refuses to run a script downloaded from the internet, unblock it
    first:
@@ -88,8 +89,7 @@ it will install the package.
    ```
 
 3. Install [PowerToys](https://github.com/microsoft/PowerToys) with Command
-   Palette enabled, restart Command Palette, press **Alt+Space** and type
-   `notes`.
+   Palette enabled, then press **Alt+Space** and type `notes`.
 
 To do the same steps by hand, from an administrator PowerShell:
 

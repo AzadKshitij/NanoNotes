@@ -186,6 +186,11 @@ else {
 
 if ($installed -and -not $KeepExisting) {
     Write-Step "Removing the existing $packageName $($installed.Version) so this build can take its place"
+
+    # The palette keeps the extension's COM server process alive. An upgrade only
+    # takes effect once that process is gone and the palette starts a new one, so
+    # restarting PowerToys alone is not enough.
+    Get-Process notes -ErrorAction SilentlyContinue | Stop-Process -Force
     $installed | Remove-AppxPackage
 }
 
@@ -195,12 +200,21 @@ Add-AppxPackage -Path $package
 $now = Get-AppxPackage -Name $packageName -ErrorAction SilentlyContinue
 if (-not $now) { throw 'The package was not installed. Check the AppXDeployment event log for details.' }
 
+# A running palette still holds the old package's COM registration. Restart it
+# so the new build is the one that answers.
+$palette = Get-Process Microsoft.CmdPal.UI -ErrorAction SilentlyContinue
+if ($palette) {
+    Write-Step 'Restarting Command Palette so it loads the new build'
+    $palette | Stop-Process -Force
+    Start-Sleep -Milliseconds 700
+    Start-Process 'explorer.exe' 'shell:AppsFolder\Microsoft.CommandPalette_8wekyb3d8bbwe!App'
+}
+
 Write-Host ''
 Write-Host "NanoNotes $($now.Version) is installed." -ForegroundColor Green
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Cyan
 Write-Host '  1. Install PowerToys and turn on Command Palette, if you have not already.'
-Write-Host '  2. Restart Command Palette (or sign out and back in).'
-Write-Host '  3. Press Alt+Space and type "notes".'
+Write-Host '  2. Press Alt+Space and type "notes".'
 Write-Host ''
 Write-Host 'Your notes and clipboard history stay in Documents\Notes.' -ForegroundColor DarkGray
