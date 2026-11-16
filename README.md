@@ -10,7 +10,14 @@ NanoNotes is a small Command Palette extension: type a thought and press Enter t
 save it as a note, search the notes you saved, and browse back through the text
 and images you copied. Everything lives in plain files on your own PC.
 
+**[Install from the Microsoft Store](https://apps.microsoft.com/detail/9nw3g5pqwf51)**,
+or run `winget install NanoNotes`.
+
 ## Screenshots
+
+A 17 second clip of the whole flow: save a note, search notes and clipboard
+together, paste back into the app you came from, install it in a terminal:
+[docs/nanonotes-demo.mp4](docs/nanonotes-demo.mp4).
 
 Find NanoNotes in the palette and its commands show up with their own icons:
 
@@ -52,15 +59,32 @@ Clipboard history, text and copied images together:
 ## Requirements
 
 - Windows 10 (19041 or newer) or Windows 11
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [PowerToys](https://github.com/microsoft/PowerToys) with Command Palette enabled,
   to run the extension
 
-## Install from a GitHub release
+## Install
 
-Every release ships a signed `x64` + `arm64` MSIX bundle. NanoNotes is signed
-with its own certificate, so Windows has to trust that certificate once before
-it will install the package.
+### From the Microsoft Store
+
+NanoNotes is free in the Store, and the Store handles updates:
+
+[Get NanoNotes from the Microsoft Store](https://apps.microsoft.com/detail/9nw3g5pqwf51)
+
+Or from a terminal:
+
+```powershell
+winget install NanoNotes
+```
+
+Then press **Alt+Space** and type `notes`. Restart Command Palette if it was
+already running before the install.
+
+### From a GitHub release
+
+Use this when the Store is not an option, such as an offline PC or a machine
+whose Store is blocked by policy. Every release ships a signed `x64` + `arm64`
+MSIX bundle. NanoNotes is signed with its own certificate, so Windows has to
+trust that certificate once before it will install the package.
 
 1. Download these three files from the
    [latest release](https://github.com/AzadKshitij/NanoNotes/releases/latest)
@@ -98,13 +122,21 @@ Import-Certificate -FilePath .\NanoNotes.cer -CertStoreLocation Cert:\LocalMachi
 Add-AppxPackage -Path .\NanoNotes_<version>_Bundle.msixbundle
 ```
 
-To uninstall:
+To uninstall, remove NanoNotes from **Settings → Apps → Installed apps**, or:
+
+```powershell
+winget uninstall NanoNotes
+```
+
+A build side-loaded from a release removes itself with:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Install-NanoNotes.ps1 -Uninstall
 ```
 
 ## Build
+
+Building needs the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```powershell
 dotnet restore NanoNotes\notes.csproj
