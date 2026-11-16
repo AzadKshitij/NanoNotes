@@ -4,6 +4,10 @@
 
 # NanoNotes
 
+<p align="center">
+  <img src="docs/social-preview.png" alt="NanoNotes app social preview">
+</p>
+
 Quick notes and clipboard history for the [Microsoft PowerToys Command Palette](https://learn.microsoft.com/windows/powertoys/command-palette/overview).
 
 NanoNotes is a small Command Palette extension: type a thought and press Enter to
