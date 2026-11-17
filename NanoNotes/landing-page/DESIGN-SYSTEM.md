@@ -138,8 +138,9 @@ Do not add a framework. Keep it small.
 | Microsoft Store | https://apps.microsoft.com/detail/9nw3g5pqwf51 |
 | GitHub | https://github.com/AzadKshitij/NanoNotes |
 | Releases | https://github.com/AzadKshitij/NanoNotes/releases |
-| Privacy | `../PRIVACY.md` |
-| License | `../LICENSE` |
+| Privacy | https://github.com/AzadKshitij/NanoNotes/blob/main/PRIVACY.md |
+| License | https://github.com/AzadKshitij/NanoNotes/blob/main/LICENSE |
+| Live site | https://azadkshitij.github.io/NanoNotes/ |
 
 Screenshots live in `landing-page/assets/` (copied from `docs/`): `search.png`, `search-all.png`, `notes.png`, `clipboard.png`.
 
