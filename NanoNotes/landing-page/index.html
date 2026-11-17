@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NanoNotes: a note, kept before you lose it</title>
+<meta name="description" content="NanoNotes is a PowerToys Command Palette extension. Type a thought, press Enter, it's saved. Search your notes and clipboard history together and paste anything back into the app you came from. Plain files on your PC, no network.">
+<meta property="og:title" content="NanoNotes: a note, kept before you lose it">
+<meta property="og:description" content="Quick notes and clipboard history for the PowerToys Command Palette. Plain files on your PC, no network.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ==================================================
+   NanoNotes: "The Sheet"
+   Design tokens
+   ================================================== */
+:root{
+  /* desk */
+  --desk:        #14161A;
+  --desk-line:   rgba(255,255,255,.035);
+
+  /* sheet */
+  --paper:       #FCFBF8;
+  --paper-hi:    #FFFFFF;
+  --ink:         #1A1C20;
+  --ink-2:       #4A4F57;
+  --ink-3:       #8A8F98;
+  --line:        #E6E3DA;
+  --line-strong: #CFCBC0;
+
+  /* accent */
+  --cobalt:      #1E3FCC;
+  --cobalt-ink:  #16309F;
+  --cobalt-wash: #EEF1FC;
+
+  /* clip */
+  --clip-hi:     #C9CCD2;
+
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --sheet-w: 1080px;
+  --gutter: clamp(1.25rem, 4vw, 4rem);
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+html{ -webkit-text-size-adjust:100%; }
+body{
+  margin:0;
+  font-family:var(--sans);
+  font-size:1.0625rem;
+  line-height:1.65;
+  color:var(--ink);
+  background-color:var(--desk);
+  background-image:
+    radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.05), transparent 60%),
+    linear-gradient(var(--desk-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--desk-line) 1px, transparent 1px);
+  background-size:auto, 28px 28px, 28px 28px;
+  -webkit-font-smoothing:antialiased;
+}
+img,svg{ display:block; }
+a{ color:var(--cobalt); text-decoration:none; }
+a:hover{ color:var(--cobalt-ink); }
+.ic{ flex:none; width:1em; height:1em; }
+:focus-visible{ outline:2px solid var(--cobalt); outline-offset:2px; }
+.visually-hidden{
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
+
+/* ---------- top bar ---------- */
+.top{
+  position:fixed; inset:0 0 auto 0; z-index:50;
+  background:rgba(20,22,26,.72);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+.top-inner{
+  max-width:var(--sheet-w); margin:0 auto;
+  height:60px; padding:0 var(--gutter);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.wordmark{
+  display:flex; align-items:center; gap:.6rem;
+  color:#F2F1ED; font-weight:600; letter-spacing:-.01em;
+}
+.wordmark:hover{ color:#fff; }
+.wordmark svg{ width:22px; height:22px; }
+.top-cta{
+  font-size:.9rem; font-weight:600;
+  color:#0d0f12; background:var(--clip-hi);
+  padding:.45rem .95rem; border-radius:3px;
+}
+.top-cta:hover{ background:#fff; color:#0d0f12; }
+
+/* ---------- the sheet ---------- */
+.sheet{
+  position:relative;
+  max-width:var(--sheet-w);
+  margin:clamp(5.5rem,10vh,8rem) auto clamp(4rem,8vh,6rem);
+  background:var(--paper);
+  border-radius:2px;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.06),
+    0 30px 70px -20px rgba(0,0,0,.75),
+    0 80px 160px -60px rgba(0,0,0,.6);
+}
+/* the clipboard's backing board, peeking above the paper */
+.sheet::before{
+  content:""; display:block; height:14px;
+  background:linear-gradient(#2A2D33,#1B1D22);
+  border-radius:2px 2px 0 0;
+}
+/* the margin rule of a legal pad */
+.sheet-inner{
+  position:relative;
+  padding:clamp(2rem,5vw,4.5rem) var(--gutter) clamp(2.5rem,5vw,4rem) calc(var(--gutter) + 1.75rem);
+}
+.sheet-inner::before{
+  content:""; position:absolute; top:clamp(2rem,5vw,4.5rem); bottom:clamp(2.5rem,5vw,4rem);
+  left:calc(var(--gutter) + .6rem);
+  width:1px; background:var(--cobalt); opacity:.22;
+}
+
+/* the clip: the one object we spend boldness on */
+.clip{
+  position:absolute; top:-26px; left:50%; transform:translateX(-50%);
+  width:132px; height:52px; z-index:3;
+  filter:drop-shadow(0 10px 14px rgba(0,0,0,.45));
+}
+.clip svg{ width:100%; height:100%; }
+
+/* ---------- hero ---------- */
+.hero{ padding-top:clamp(.5rem,2vw,1.5rem); }
+.kicker{
+  margin:0 0 1.1rem;
+  font-size:.95rem; font-weight:500; color:var(--ink-2);
+}
+.hero h1{
+  margin:0 0 1.25rem;
+  font-size:clamp(2.5rem, 6.2vw, 4.4rem);
+  line-height:1.02; font-weight:600; letter-spacing:-.035em;
+  text-wrap:balance;
+}
+.lede{
+  margin:0 0 2.25rem; max-width:58ch;
+  font-size:clamp(1.05rem, 1.6vw, 1.25rem);
+  line-height:1.55; color:var(--ink-2);
+}
+.lede strong{ color:var(--ink); font-weight:600; }
+
+/* capture field */
+.capture{
+  display:flex; align-items:stretch;
+  max-width:620px;
+  border:1px solid var(--line-strong);
+  border-radius:3px; background:var(--paper-hi);
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.capture:focus-within{
+  border-color:var(--cobalt);
+  box-shadow:0 0 0 3px var(--cobalt-wash);
+}
+.capture input{
+  flex:1; min-width:0; border:0; background:transparent;
+  padding:.95rem 1.1rem;
+  font-family:var(--mono); font-size:1rem; color:var(--ink);
+}
+.capture input:focus{ outline:none; }
+.capture input::placeholder{ color:var(--ink-3); }
+.capture button{
+  border:0; border-left:1px solid var(--line);
+  padding:0 1.35rem; cursor:pointer;
+  font-family:var(--sans); font-weight:600; font-size:.95rem;
+  color:var(--paper); background:var(--cobalt);
+}
+.capture button:hover{ background:var(--cobalt-ink); }
+.capture-hint{
+  margin:.6rem 0 0; font-size:.85rem; color:var(--ink-3);
+}
+
+/* the ledger of what was caught */
+.ledger{
+  list-style:none; margin:1.75rem 0 0; padding:0;
+  max-width:620px;
+  border-top:1px solid var(--line);
+}
+.ledger:empty{ display:none; }
+.ledger li{
+  display:flex; align-items:baseline; gap:1rem;
+  padding:.7rem 0; border-bottom:1px solid var(--line);
+  font-family:var(--mono); font-size:.95rem;
+}
+.ledger .txt{ flex:1; min-width:0; overflow-wrap:anywhere; color:var(--ink); }
+.ledger .time{ color:var(--ink-3); font-size:.8rem; white-space:nowrap; }
+.ledger .del{
+  border:0; background:none; cursor:pointer; padding:0;
+  color:var(--ink-3); line-height:1;
+}
+.ledger .del:hover{ color:#B3261E; }
+.ledger .del .ic{ width:14px; height:14px; }
+.ledger li.is-new{ animation:catch .38s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes catch{
+  from{ opacity:0; transform:translateY(-8px); }
+  to{ opacity:1; transform:none; }
+}
+
+.hero-actions{
+  display:flex; flex-wrap:wrap; gap:.9rem; margin-top:2.5rem;
+}
+.btn{
+  display:inline-flex; align-items:center; gap:.55rem;
+  padding:.8rem 1.4rem; border-radius:3px; cursor:pointer;
+  font-weight:600; font-size:.98rem; line-height:1;
+}
+.btn-primary{ background:var(--cobalt); color:var(--paper); }
+.btn-primary:hover{ background:var(--cobalt-ink); color:#fff; }
+.btn-ghost{
+  background:transparent; color:var(--ink);
+  border:1px solid var(--line-strong);
+  font-family:var(--mono); font-size:.9rem;
+}
+.btn-ghost:hover{ background:#fff; color:var(--ink); border-color:var(--ink-3); }
+.btn-ghost.is-copied{ border-color:var(--cobalt); color:var(--cobalt); }
+
+/* ---------- generic section ---------- */
+.section{ padding-top:clamp(2.5rem,6vw,4.5rem); margin-top:clamp(2.5rem,6vw,4.5rem); border-top:1px solid var(--line); }
+.sec-head{ max-width:62ch; margin-bottom:2.25rem; }
+.sec-head h2, .install h2{
+  margin:0 0 .8rem;
+  font-size:clamp(1.7rem, 3.2vw, 2.5rem);
+  line-height:1.1; font-weight:600; letter-spacing:-.025em;
+  text-wrap:balance;
+}
+.sec-head p{ margin:0; color:var(--ink-2); }
+
+/* ---------- screenshots ---------- */
+.viewer{ max-width:880px; }
+.tabs{ display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1.1rem; }
+.tab{
+  border:1px solid var(--line-strong); background:var(--paper-hi);
+  padding:.5rem .95rem; border-radius:3px; cursor:pointer;
+  font-family:var(--mono); font-size:.82rem; color:var(--ink-2);
+}
+.tab:hover{ border-color:var(--ink-3); color:var(--ink); }
+.tab.is-active{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
+.shot{ margin:0; }
+.shot img{
+  width:100%; height:auto;
+  border:1px solid var(--line-strong); border-radius:3px;
+  background:#14161A;
+}
+.shot figcaption{
+  margin-top:.75rem; font-family:var(--mono); font-size:.82rem; color:var(--ink-3);
+}
+.shot figcaption .k{ color:var(--cobalt); }
+
+/* ---------- kept together ---------- */
+.searchbar{
+  max-width:620px; margin-bottom:1.75rem;
+  display:flex; align-items:center; gap:.7rem;
+  border:1px solid var(--line-strong); border-radius:3px;
+  background:var(--paper-hi); padding:.7rem 1rem;
+}
+.searchbar:focus-within{ border-color:var(--cobalt); box-shadow:0 0 0 3px var(--cobalt-wash); }
+.searchbar svg{ width:16px; height:16px; color:var(--ink-3); flex:none; }
+.searchbar input{
+  flex:1; min-width:0; border:0; background:transparent;
+  font-family:var(--mono); font-size:.95rem; color:var(--ink);
+}
+.searchbar input:focus{ outline:none; }
+.count{ font-size:.82rem; color:var(--ink-3); font-family:var(--mono); white-space:nowrap; }
+
+.cols{ display:grid; grid-template-columns:1fr 1fr; gap:clamp(1.5rem,3vw,3rem); }
+.col h3{
+  margin:0 0 .8rem; font-size:.9rem; font-weight:600;
+  color:var(--ink); display:flex; align-items:center; gap:.5rem;
+}
+.col h3 .ic{ width:15px; height:15px; color:var(--ink-2); }
+.col h3 .ic-clip{ color:var(--cobalt); }
+.rows{ list-style:none; margin:0; padding:0; border-top:1px solid var(--line); }
+.rows li{
+  display:flex; align-items:center; gap:.9rem;
+  padding:.75rem 0; border-bottom:1px solid var(--line);
+  font-family:var(--mono); font-size:.92rem;
+}
+.rows .txt{ flex:1; min-width:0; color:var(--ink); overflow-wrap:anywhere; }
+.rows .meta{ color:var(--ink-3); font-size:.78rem; white-space:nowrap; }
+.rows .thumb{
+  width:34px; height:34px; flex:none; border-radius:2px;
+  background:linear-gradient(135deg,#D8DCE6,#B9C0D0);
+  border:1px solid var(--line-strong);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--ink-2);
+}
+.rows .thumb .ic{ width:16px; height:16px; }
+.rows .copy{
+  border:1px solid var(--line); background:none; cursor:pointer;
+  border-radius:2px; padding:.25rem .5rem;
+  font-family:var(--mono); font-size:.72rem; color:var(--ink-2);
+}
+.rows .copy:hover{ border-color:var(--cobalt); color:var(--cobalt); }
+.rows li.hidden{ display:none; }
+
+/* ---------- files ---------- */
+.files{ display:grid; grid-template-columns:1fr 1.4fr; gap:clamp(1.25rem,2.5vw,2rem); align-items:start; }
+.panel{
+  border:1px solid var(--line-strong); border-radius:3px;
+  background:#14161A; overflow:hidden;
+}
+.panel-bar{
+  display:flex; align-items:center; gap:.5rem;
+  padding:.55rem .85rem; border-bottom:1px solid rgba(255,255,255,.08);
+  font-family:var(--mono); font-size:.78rem; color:#9BA0A8;
+}
+.panel-bar .dots{ display:flex; gap:5px; }
+.panel-bar .dots i{ width:9px; height:9px; border-radius:50%; background:#3A3E45; }
+.panel-bar .dots i:nth-child(1){ background:#FF5F56; }
+.panel-bar .dots i:nth-child(2){ background:#FFBD2E; }
+.panel-bar .dots i:nth-child(3){ background:#27C93F; }
+.panel-body{ padding:1.1rem 1.25rem; font-family:var(--mono); font-size:.86rem; line-height:1.75; }
+.tree{ color:#C7CBD2; white-space:pre; overflow-x:auto; }
+.tree .dir{ color:#7D8590; }
+.tree .file{ color:#E6EDF3; }
+.code{ color:#C7CBD2; white-space:pre; overflow-x:auto; }
+.code .k{ color:#79B8FF; }
+.code .s{ color:#3FB950; }
+.code .n{ color:#D29922; }
+.code .p{ color:#7D8590; }
+.note-line{ margin-top:1.25rem; font-size:.9rem; color:var(--ink-2); }
+.note-line code{ font-family:var(--mono); font-size:.85em; background:var(--cobalt-wash); color:var(--cobalt-ink); padding:.1em .35em; border-radius:2px; }
+
+/* ---------- network ---------- */
+.net{ border:1px solid var(--line-strong); border-radius:3px; background:var(--paper-hi); max-width:680px; }
+.net-bar{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:.6rem 1rem; border-bottom:1px solid var(--line);
+  font-family:var(--mono); font-size:.8rem; color:var(--ink-2);
+}
+.net-title{ display:inline-flex; align-items:center; gap:.4rem; }
+.net-bar .ic{ width:13px; height:13px; }
+.net-bar .badge{ color:var(--cobalt); font-weight:500; }
+.net-empty{
+  padding:2.5rem 1rem; text-align:center;
+  font-family:var(--mono); font-size:.95rem; color:var(--ink-3);
+}
+
+/* ---------- install ---------- */
+.install .install-grid{ display:grid; grid-template-columns:auto 1fr; gap:1rem; align-items:center; margin-bottom:1.25rem; }
+.store{
+  display:inline-flex; align-items:center; gap:.7rem;
+  padding:.7rem 1.1rem; border:1px solid var(--line-strong); border-radius:3px;
+  background:var(--paper-hi); color:var(--ink); font-weight:600; font-size:.95rem;
+}
+.store:hover{ border-color:var(--ink-3); color:var(--ink); }
+.store svg{ width:22px; height:22px; }
+.cmd{
+  display:flex; align-items:center; gap:.8rem;
+  background:#14161A; color:#E6EDF3;
+  border-radius:3px; padding:.85rem 1.1rem;
+  font-family:var(--mono); font-size:.95rem;
+}
+.cmd .prompt{ width:16px; height:16px; color:#3FB950; }
+.cmd .copy{
+  margin-left:auto; display:inline-flex; align-items:center; gap:.4rem;
+  border:1px solid rgba(255,255,255,.16); background:none;
+  color:#9BA0A8; border-radius:2px; padding:.25rem .55rem;
+  font-family:var(--mono); font-size:.75rem; cursor:pointer;
+}
+.cmd .copy .ic{ width:12px; height:12px; }
+.cmd .copy:hover{ color:#fff; border-color:rgba(255,255,255,.4); }
+.req{ margin:0; font-size:.88rem; color:var(--ink-3); }
+
+/* ---------- footer ---------- */
+.foot{
+  margin-top:clamp(2.5rem,6vw,4rem); padding-top:1.5rem;
+  border-top:1px solid var(--line);
+  display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between;
+  font-size:.88rem; color:var(--ink-3);
+}
+.foot .links{ display:flex; gap:1.25rem; }
+.foot a{ color:var(--ink-2); display:inline-flex; align-items:center; gap:.35rem; }
+.foot a:hover{ color:var(--ink); }
+.foot a .ic{ width:13px; height:13px; }
+
+/* ---------- responsive ---------- */
+@media (max-width:820px){
+  .cols{ grid-template-columns:1fr; }
+  .files{ grid-template-columns:1fr; }
+  .install .install-grid{ grid-template-columns:1fr; align-items:start; }
+}
+@media (max-width:640px){
+  body{ font-size:1rem; }
+  .sheet{ margin:5rem 0 3rem; border-radius:0; }
+  .sheet::before{ border-radius:0; }
+  .sheet-inner{ padding-left:1.25rem; padding-right:1.25rem; }
+  .sheet-inner::before{ display:none; }
+  .clip{ width:104px; height:42px; top:-20px; }
+  .capture{ flex-direction:column; }
+  .capture button{ border-left:0; border-top:1px solid var(--line); padding:.8rem; }
+  .top-inner{ padding:0 1.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- icon set: 24px grid, 1.6 stroke, currentColor -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-mark" viewBox="0 0 24 24">
+    <rect x="4" y="4.5" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <rect x="8.5" y="2" width="7" height="5" rx="1.4" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-note" viewBox="0 0 24 24">
+    <path d="M6 3h9l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M15 3v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M9 12h6M9 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24">
+    <rect x="5" y="4.5" width="14" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <rect x="9" y="2.5" width="6" height="4" rx="1.2" fill="currentColor"/>
+    <path d="M8.5 11h7M8.5 15h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-search" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24">
+    <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-close" viewBox="0 0 24 24">
+    <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-return" viewBox="0 0 24 24">
+    <path d="M9 10V7l5 4-5 4v-3H6a2 2 0 0 0-2 2v3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-store" viewBox="0 0 24 24">
+    <path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-github" viewBox="0 0 24 24">
+    <path d="M12 2C6.5 2 2 6.5 2 12c0 4.4 2.9 8.1 6.8 9.4.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.2-3.4-1.2-.4-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 3 .8.1-.6.3-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 22 12c0-5.5-4.5-10-10-10z" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-image" viewBox="0 0 24 24">
+    <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <circle cx="8.5" cy="10" r="1.5" fill="currentColor"/>
+    <path d="m4 17 5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24">
+    <rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+  </symbol>
+</svg>
+
+<header class="top">
+  <div class="top-inner">
+    <a class="wordmark" href="#top" aria-label="NanoNotes home">
+      <svg aria-hidden="true"><use href="#i-mark"/></svg>
+      <span>NanoNotes</span>
+    </a>
+    <a class="top-cta" href="https://apps.microsoft.com/detail/9nw3g5pqwf51">Get it</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="sheet">
+    <div class="clip" aria-hidden="true">
+      <svg viewBox="0 0 132 52">
+        <rect x="10" y="12" width="112" height="30" rx="7" fill="#202329"/>
+        <rect x="10" y="12" width="112" height="30" rx="7" fill="none" stroke="#3A3E45" stroke-width="1"/>
+        <circle cx="66" cy="17" r="7.5" fill="#14161A" stroke="#C9CCD2" stroke-width="2"/>
+        <rect x="52" y="30" width="28" height="7" rx="2.5" fill="#1E3FCC"/>
+      </svg>
+    </div>
+
+    <div class="sheet-inner">
+
+      <!-- hero -->
+      <section class="hero">
+        <p class="kicker">A PowerToys Command Palette extension</p>
+        <h1>A note, kept before you lose it.</h1>
+        <p class="lede">
+          Type a thought, press Enter, and it&rsquo;s saved. Search your <strong>notes</strong> and
+          <strong>clipboard history</strong> together, then paste anything back into the app you
+          came from. Plain files on your PC. No network, no accounts.
+        </p>
+
+        <form class="capture" id="capture-form">
+          <label class="visually-hidden" for="capture-input">Write a note</label>
+          <input id="capture-input" type="text" placeholder="Type a note and press Enter" autocomplete="off" maxlength="300">
+          <button type="submit">Keep it</button>
+        </form>
+        <p class="capture-hint">This sheet is live. Press Enter and your note joins the ledger below.</p>
+
+        <ul class="ledger" id="ledger" aria-live="polite"></ul>
+
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://apps.microsoft.com/detail/9nw3g5pqwf51">
+            <svg class="ic" aria-hidden="true"><use href="#i-store"/></svg>
+            Get it free from the Microsoft Store
+          </a>
+          <button type="button" class="btn btn-ghost copy" data-copy="winget install NanoNotes" aria-label="Copy the winget install command">
+            <svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg>
+            <span>winget install NanoNotes</span>
+          </button>
+          <a class="btn btn-ghost" href="https://github.com/AzadKshitij/NanoNotes">
+            <svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>
+            <span>GitHub</span>
+          </a>
+        </div>
+      </section>
+
+      <!-- in the app -->
+      <section class="section">
+        <div class="sec-head">
+          <h2>In the app</h2>
+          <p>Four screens from the palette. Pick one to look at it.</p>
+        </div>
+        <div class="viewer">
+          <div class="tabs" role="tablist" aria-label="Screenshots">
+            <button class="tab is-active" role="tab" aria-selected="true"  aria-controls="shot-panel" data-shot="commands">Commands</button>
+            <button class="tab" role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="search">Search</button>
+            <button class="tab" role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="notes">Notes</button>
+            <button class="tab" role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="clipboard">Clipboard</button>
+          </div>
+          <figure class="shot" id="shot-panel" role="tabpanel">
+            <img id="shot-img" src="assets/search.png" width="972" height="571"
+                 alt="NanoNotes commands listed in the PowerToys Command Palette">
+            <figcaption id="shot-cap"><span class="k">Commands.</span> Each one with its own icon.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- kept together -->
+      <section class="section">
+        <div class="sec-head">
+          <h2>Notes and clipboard, one search</h2>
+          <p>One box looks through both. Matches come back newest first, each row labelled with where it came from. Try it. This list is searchable.</p>
+        </div>
+
+        <div class="searchbar">
+          <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+          <label class="visually-hidden" for="filter">Search notes and clipboard</label>
+          <input id="filter" type="text" placeholder="Search both" autocomplete="off">
+          <span class="count" id="count"></span>
+        </div>
+
+        <div class="cols">
+          <div class="col">
+            <h3><svg class="ic" aria-hidden="true"><use href="#i-note"/></svg>Notes</h3>
+            <ul class="rows" id="notes-list">
+              <li><span class="txt">call the landlord about the leak</span><span class="meta">today 09:12</span><button class="copy">copy</button></li>
+              <li><span class="txt">idea: clipboard as a timeline you can scrub</span><span class="meta">today 08:47</span><button class="copy">copy</button></li>
+              <li><span class="txt">book a table for saturday, 7pm</span><span class="meta">yesterday</span><button class="copy">copy</button></li>
+              <li><span class="txt">the mic arm clamps to the desk edge</span><span class="meta">yesterday</span><button class="copy">copy</button></li>
+              <li><span class="txt">renew the domain before the 21st</span><span class="meta">2 days ago</span><button class="copy">copy</button></li>
+            </ul>
+          </div>
+          <div class="col">
+            <h3><svg class="ic ic-clip" aria-hidden="true"><use href="#i-clip"/></svg>Clipboard</h3>
+            <ul class="rows" id="clip-list">
+              <li><span class="txt">https://github.com/microsoft/PowerToys</span><span class="meta">text, 10:02</span><button class="copy">copy</button></li>
+              <li><span class="txt">ssh -p 2222 deploy@box</span><span class="meta">text, 09:58</span><button class="copy">copy</button></li>
+              <li><span class="thumb"><svg class="ic" aria-hidden="true"><use href="#i-image"/></svg></span><span class="txt">screenshot of the error dialog</span><span class="meta">image, 09:31</span><button class="copy">copy</button></li>
+              <li><span class="txt">XK9-4412-QP77</span><span class="meta">text, 08:15</span><button class="copy">copy</button></li>
+              <li><span class="txt">10.0.4.17</span><span class="meta">text, mon</span><button class="copy">copy</button></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- files -->
+      <section class="section">
+        <div class="sec-head">
+          <h2>Plain files, in your Documents</h2>
+          <p>Notes and clipboard history are JSON and PNG files you can open in any editor, back up however you like, and read without NanoNotes installed.</p>
+        </div>
+
+        <div class="files">
+          <div class="panel">
+            <div class="panel-bar"><span class="dots"><i></i><i></i><i></i></span>Documents</div>
+            <div class="panel-body tree"><span class="dir">Documents/</span>
+  └─ <span class="dir">Notes/</span>
+     ├─ <span class="file">notes.json</span>
+     ├─ <span class="file">clipboard.json</span>
+     └─ <span class="dir">clipboard/</span>
+        └─ <span class="file">2026-01-15_10-15-00.png</span></div>
+          </div>
+          <div class="panel">
+            <div class="panel-bar"><span class="dots"><i></i><i></i><i></i></span>notes.json</div>
+            <div class="panel-body code"><span class="p">{</span>
+  <span class="k">"id"</span><span class="p">:</span>      <span class="s">"note_001"</span><span class="p">,</span>
+  <span class="k">"content"</span><span class="p">:</span> <span class="s">"call the landlord about the leak"</span><span class="p">,</span>
+  <span class="k">"created"</span><span class="p">:</span> <span class="s">"2026-01-15T09:12:04Z"</span><span class="p">,</span>
+  <span class="k">"lines"</span><span class="p">:</span>   <span class="n">1</span>
+<span class="p">}</span></div>
+          </div>
+        </div>
+        <p class="note-line">Clipboard history prunes itself after 7 to 30 days (14 by default, capped at 500 entries). Image capture is a switch.</p>
+      </section>
+
+      <!-- network -->
+      <section class="section">
+        <div class="sec-head">
+          <h2>Nothing leaves this PC</h2>
+          <p>No sync, no telemetry, no accounts. NanoNotes makes zero network requests, so there is nothing to inspect.</p>
+        </div>
+        <div class="net">
+          <div class="net-bar"><span class="net-title"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>Network</span><span class="badge">0 requests</span></div>
+          <div class="net-empty">This panel stays empty.</div>
+        </div>
+      </section>
+
+      <!-- install -->
+      <section class="section install">
+        <h2>Install it</h2>
+        <p class="sec-head" style="margin-bottom:1.5rem;">Two ways. The Store keeps it up to date for you.</p>
+        <div class="install-grid">
+          <a class="store" href="https://apps.microsoft.com/detail/9nw3g5pqwf51">
+            <svg class="ic" aria-hidden="true"><use href="#i-store"/></svg>
+            Microsoft Store
+          </a>
+          <div class="cmd">
+            <svg class="ic prompt" aria-hidden="true"><use href="#i-return"/></svg>
+            <span id="cmd-text">winget install NanoNotes</span>
+            <button class="copy" data-copy="winget install NanoNotes"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg><span>copy</span></button>
+          </div>
+        </div>
+        <p class="req">Windows 10 (19041 or newer) or Windows 11, with PowerToys and Command Palette enabled. Press Alt+Space and type “notes”.</p>
+      </section>
+
+      <footer class="foot">
+        <div class="links">
+          <a href="https://github.com/AzadKshitij/NanoNotes"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>GitHub</a>
+          <a href="https://github.com/AzadKshitij/NanoNotes/releases">Releases</a>
+          <a href="https://github.com/AzadKshitij/NanoNotes/blob/main/PRIVACY.md">Privacy</a>
+          <a href="https://github.com/AzadKshitij/NanoNotes/blob/main/LICENSE">License</a>
+        </div>
+        <span>© 2026 Azad Kshitij / GPL-3.0</span>
+      </footer>
+
+    </div>
+  </div>
+</main>
+
+<script>
+(function(){
+  var form   = document.getElementById('capture-form');
+  var input  = document.getElementById('capture-input');
+  var ledger = document.getElementById('ledger');
+
+  function stamp(){
+    var d = new Date();
+    var p = function(n){ return String(n).padStart(2,'0'); };
+    return 'today ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var text = input.value.trim();
+    if(!text) return;
+    var li = document.createElement('li');
+    li.className = 'is-new';
+
+    var txt = document.createElement('span');
+    txt.className = 'txt';
+    txt.textContent = text;
+
+    var time = document.createElement('span');
+    time.className = 'time';
+    time.textContent = stamp();
+
+    var del = document.createElement('button');
+    del.className = 'del';
+    del.type = 'button';
+    del.innerHTML = '<svg class="ic" aria-hidden="true"><use href="#i-close"/></svg>';
+    del.setAttribute('aria-label', 'Delete note');
+    del.addEventListener('click', function(){ li.remove(); });
+
+    li.appendChild(txt); li.appendChild(time); li.appendChild(del);
+    ledger.prepend(li);
+    input.value = '';
+    input.focus();
+  });
+
+  /* screenshot viewer */
+  var shots = {
+    commands:  { src:'assets/search.png',    alt:'NanoNotes commands listed in the PowerToys Command Palette',      label:'Commands',  cap:'Each one with its own icon.' },
+    search:    { src:'assets/search-all.png', alt:'Search results mixing notes and clipboard entries, newest first', label:'Search',    cap:'One list, notes and clipboard together.' },
+    notes:     { src:'assets/notes.png',     alt:'The notes list, newest first, with age and line count',           label:'Notes',     cap:'Newest first, with age and line count.' },
+    clipboard: { src:'assets/clipboard.png', alt:'Clipboard history with text and image entries',                  label:'Clipboard', cap:'Text and images, kept together.' }
+  };
+  var tabs    = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var shotImg = document.getElementById('shot-img');
+  var shotCap = document.getElementById('shot-cap');
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      var s = shots[tab.getAttribute('data-shot')];
+      if(!s) return;
+      tabs.forEach(function(t){
+        var on = t === tab;
+        t.classList.toggle('is-active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      shotImg.src = s.src;
+      shotImg.alt = s.alt;
+      shotCap.innerHTML = '<span class="k">' + s.label + '.</span> ' + s.cap;
+    });
+  });
+  window.addEventListener('load', function(){
+    Object.keys(shots).forEach(function(k){ var i = new Image(); i.src = shots[k].src; });
+  });
+
+  /* unified search across both lists */
+  var filter = document.getElementById('filter');
+  var count  = document.getElementById('count');
+  var lists  = [document.getElementById('notes-list'), document.getElementById('clip-list')];
+  var all    = [];
+  lists.forEach(function(list){
+    Array.prototype.forEach.call(list.children, function(li){
+      all.push({ li: li, text: li.textContent.toLowerCase() });
+    });
+  });
+
+  function runFilter(){
+    var q = filter.value.trim().toLowerCase();
+    var shown = 0;
+    all.forEach(function(row){
+      var hit = !q || row.text.indexOf(q) !== -1;
+      row.li.classList.toggle('hidden', !hit);
+      if(hit) shown++;
+    });
+    count.textContent = q ? shown + ' of ' + all.length : '';
+  }
+  filter.addEventListener('input', runFilter);
+
+  /* copy buttons */
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest('.copy');
+    if(!btn) return;
+    var text = btn.getAttribute('data-copy');
+    if(!text){
+      var li = btn.closest('li');
+      var t = li && li.querySelector('.txt');
+      text = t ? t.textContent : '';
+    }
+    if(!text) return;
+    var label = btn.querySelector('span') || btn;
+    var done = function(){
+      var old = label.textContent;
+      label.textContent = 'copied';
+      btn.classList.add('is-copied');
+      setTimeout(function(){ label.textContent = old; btn.classList.remove('is-copied'); }, 1200);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done, done);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch(_){}
+      document.body.removeChild(ta); done();
+    }
+  });
+})();
+</script>
+</body>
+</html>
